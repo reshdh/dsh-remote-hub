@@ -8,7 +8,7 @@
  */
 
 export const WIZARD_CSS = `
-[data-plugin-detail="dsh-zen-remote"] section[data-plugin-config]:empty {
+[data-plugin-detail="dsh-remote-hub"] section[data-plugin-config]:empty {
   display: none;
 }
 

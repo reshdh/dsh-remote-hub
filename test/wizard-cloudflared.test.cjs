@@ -95,7 +95,9 @@ test('start: token file 0600 via atomic rename, secret by --token-file only', as
 
   // The token file: exact content, owner-only mode, no temp leftover.
   assert.equal(fs.readFileSync(tokenFile, 'utf8'), secret)
-  assert.equal(fs.statSync(tokenFile).mode & 0o777, 0o600)
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(tokenFile).mode & 0o777, 0o600)
+  }
   assert.ok(!fs.existsSync(`${tokenFile}.part`))
 
   // One spawn: tunnel run --token-file <path>. No secret in argv, none in env.
@@ -113,8 +115,8 @@ test('start: token file 0600 via atomic rename, secret by --token-file only', as
   subprocess.handles.length = 0
   assert.equal((await manager.start({ tunnelToken: secret })).ok, true)
   const envKeys = Object.keys(subprocess.spawns[0].env)
-  const WHITELIST = new Set(['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ'])
-  for (const key of envKeys) assert.ok(WHITELIST.has(key), `env key ${key} must be whitelisted`)
+  const WHITELIST = new Set(['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ', 'SYSTEMROOT', 'SYSTEMDRIVE', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'TEMP', 'TMP', 'WINDIR', 'COMSPEC'])
+  for (const key of envKeys) assert.ok(WHITELIST.has(key.toUpperCase()), `env key ${key} must be whitelisted`)
   assert.ok(!JSON.stringify(subprocess.spawns[0].env).includes('f'.repeat(64)), 'no host secret reached the child env')
   delete process.env.LAN_GATE_RELAY_SECRET
 

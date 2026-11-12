@@ -437,7 +437,9 @@ test('cf-token: POST stores 0600, DELETE removes, the token never echoes (GW-13a
       assert.deepEqual(JSON.parse(post.body), { ok: true, configured: true })
       const stored = fs.readFileSync(fixture.file, 'utf8')
       assert.equal(stored, 'sekret-cf-token-value')
-      assert.equal(fs.statSync(fixture.file).mode & 0o777, 0o600, '0600 on disk')
+      if (process.platform !== 'win32') {
+        assert.equal(fs.statSync(fixture.file).mode & 0o777, 0o600, '0600 on disk')
+      }
       assert.ok(!post.body.includes('sekret-cf-token-value'), 'the token never echoes')
 
       // Bad bodies are typed 400s before any write.

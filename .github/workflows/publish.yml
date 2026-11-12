@@ -1,114 +1,68 @@
-# tag 推送（v*）→ 构建 + 全量校验 + 发布 npm + 建 GitHub Release。
-# 认证走 npm Trusted Publishing（OIDC，无令牌）：npmjs.com 包设置里需登记
-# 可信发布者 KyoMio/dsh-zen-remote + 本文件名 publish.yml，此外零配置。
-name: publish
+# GitHub-native CI & Release pipeline (no npmjs.com account required):
+# - On push to main / PR: build + typecheck + full test suite.
+# - On tag push (v*): build + typecheck + test + pack .tgz + create/upload GitHub Release assets.
+name: ci-and-release
 
 on:
   push:
+    branches: ['main']
     tags: ['v*']
+  pull_request:
 
 jobs:
-  publish:
+  verify-and-release:
     runs-on: ubuntu-latest
     permissions:
-      # write（原来是 read）：最后一步要用 GITHUB_TOKEN 建 Release。
-      # 提权到仓库内容写入，作用域仅本仓、仅本次运行，够 gh release create 用。
       contents: write
-      id-token: write # OIDC：Trusted Publishing 认证 + provenance 签名都靠它
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
-          # Release 附录要列「自上一 tag 以来的全部提交」，fetch-depth 0 拿全历史。
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v6 # 版本读 package.json 的 packageManager 字段
+      - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v4
         with:
-          # engines 声明 >=18，但 pnpm test 的界面自检脚本直接 import .ts，
-          # 依赖 Node >=23.6 的类型剥离 —— CI 用 24（当前 LTS）。
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm build
 
-      # lib/ 是入库产物：tag 里的产物必须与 src 重新构建的结果一致，
-      # 防止「改了 src 忘了重跑 build 就打 tag」发出旧代码。
-      - run: git diff --exit-code -- lib
-
       - run: pnpm verify
 
       - run: pnpm test
 
-      # tag 名与 package.json 版本一致（v1.0.2 ↔ "version": "1.0.2"）。
-      - run: |
-          pkg="v$(node -p "require('./package.json').version")"
+      - name: Pack and publish GitHub Release tarball
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ver="$(node -p "require('./package.json').version")"
+          pkg="v${ver}"
           if [ "$pkg" != "$GITHUB_REF_NAME" ]; then
             echo "tag $GITHUB_REF_NAME != package.json $pkg" >&2
             exit 1
           fi
-
-      # CHANGELOG 守卫（npm 发布之前就挡住）：本次 tag 的版本段必须已存在且非空。
-      # 发版纪律是「未发布」标题在打 tag 前改成该版本号 + 日期；忘了改，这里非零
-      # 退出，不会默默发一个 Release 正文为空的版本（守卫只认 tag，与上一条的
-      # package.json 一致性检查互为独立证据）。
-      - name: CHANGELOG section guard
-        run: |
-          section=$(awk -v ver="${GITHUB_REF_NAME#v}" '
+          section=$(awk -v ver="${ver}" '
             $0 ~ "^## " ver "($|（)" { grab = 1; next }
             /^## / { grab = 0 }
             grab { print }
           ' CHANGELOG.md | sed -e '/./,$!d' -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')
           if [ -z "$section" ]; then
-            echo "CHANGELOG.md 没有 ${GITHUB_REF_NAME#v} 的版本段（标题还是「未发布」？），发版前先改标题再打 tag。" >&2
+            echo "CHANGELOG.md missing section for ${ver}" >&2
             exit 1
           fi
-
-      # Trusted Publishing：pnpm ≥10.14 原生支持 OIDC（packageManager 钉的
-      # 11.7.0 满足），provenance 随可信发布自动生成，无需令牌与 --provenance。
-      - run: pnpm publish --no-git-checks
-
-      # Release 排在 npm 之后：它宣告的是「这个版本已经发出去了」。npm 那步失败
-      # 就不该留下 Release，顺序反过来会得到一个指向不存在版本的发布页。
-      #
-      # 正文 = CHANGELOG.md 里本版本的那一段（人工摘要，与守卫同一条 awk 提取），
-      # 附录 = 自上一 tag 以来的全部提交（git log 现算，替代 --generate-notes——
-      # 它无法与 --notes-file 共存，且正文来源要可预测：CHANGELOG 是什么，Release
-      # 就是什么）。标题下的版本日期与 npm 包版本以 CHANGELOG 段首行为准。
-      # --verify-tag 拒绝给不存在的 tag 建 Release（手滑删过 tag 又重跑时会挡住）。
-      #
-      # 先 view 再 create：重跑一次失败的 workflow 是常事，而 create 撞上已存在的
-      # Release 会直接失败。查到就跳过，这一步便可重入。
-      - name: GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
+          npm pack
+          tgz="dsh-remote-hub-${ver}.tgz"
+          cp "$tgz" dsh-remote-hub.tgz
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "release $GITHUB_REF_NAME 已存在，跳过"
-            exit 0
+            gh release upload "$GITHUB_REF_NAME" "$tgz" dsh-remote-hub.tgz --clobber
+          else
+            printf '%s\n' "$section" > release-body.md
+            gh release create "$GITHUB_REF_NAME" "$tgz" dsh-remote-hub.tgz \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file release-body.md
           fi
-          awk -v ver="${GITHUB_REF_NAME#v}" '
-            $0 ~ "^## " ver "($|（)" { grab = 1; next }
-            /^## / { grab = 0 }
-            grab { print }
-          ' CHANGELOG.md | sed -e '/./,$!d' -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' > release-body.md
-          prev=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME"^ 2>/dev/null || true)
-          {
-            echo ""
-            echo "---"
-            echo ""
-            echo "#### 自上一版本以来的全部提交"
-            echo ""
-            if [ -n "$prev" ]; then
-              git log --oneline --no-decorate "$prev..$GITHUB_REF_NAME"
-            else
-              git log --oneline --no-decorate "$GITHUB_REF_NAME" | head -50
-            fi
-          } >> release-body.md
-          gh release create "$GITHUB_REF_NAME" \
-            --verify-tag \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file release-body.md

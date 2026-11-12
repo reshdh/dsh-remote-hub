@@ -831,16 +831,15 @@ test('e2e T23b-2: the interceptor merges the global workspace stream — local g
     await waitFor(() => env.streams.some((gate) => gate.call.namespace === 'workspace' && gate.call.method === 'follow'))
     const wsGate = env.streams.find((gate) => gate.call.namespace === 'workspace')
     wsGate.push({ type: 'baseline', value: { items: [SERVER_W1, SERVER_W2], archivedSessionIds: [], pinnedSessionIds: [] } })
-    const remote = await collectFrames(iterator, 4)
-    // The server only shares session-a, so the remote groups show only what
-    // is shared: w-1 carries ONE virtual session despite two server-side;
-    // w-2's unshared session-c leaves it NOTHING shared, so the group is not
-    // forwarded to the UI at all (T56 — no empty 「服务端名 · 工作区名」
-    // heading); titles carry the server name; and the UI never sees a second
-    // baseline.
-    assert.deepEqual(remote[0].workspace, { ...SERVER_W1, workspaceId: V('w-1'), title: `${SERVER_NAME} · 服务端一`, sessionIds: [V('session-a')] })
-    assert.deepEqual(remote[1], { type: 'order', workspaceIds: ['ws-local', V('w-1')] })
-    assert.ok(remote.every((frame) => frame.type !== 'baseline' && frame.workspaceId !== V('w-2') && frame.workspace?.workspaceId !== V('w-2')))
+    const remote = await collectFrames(iterator, 5)
+    // The server only shares session-a, so w-1 carries ONE virtual session
+    // despite two server-side; empty remote workspace w-2 carries the
+    // __empty__:w-2 sentinel so the remote workspace remains browsable; and
+    // the UI never sees a second baseline.
+    assert.deepEqual(remote[0].workspace, { ...SERVER_W1, workspaceId: V('w-1'), title: '服务端一', sessionIds: [V('session-a')] })
+    assert.deepEqual(remote[1].workspace, { ...SERVER_W2, workspaceId: V('w-2'), title: '服务端二', sessionIds: [V('__empty__:w-2')] })
+    assert.deepEqual(remote[2], { type: 'order', workspaceIds: ['ws-local', V('w-1'), V('w-2')] })
+    assert.ok(remote.every((frame) => frame.type !== 'baseline'))
 
     // Sharing a second session on the server synthesizes an upsert there; it
     // must cross the real gateway child + NDJSON relay + interceptor merger
@@ -848,7 +847,7 @@ test('e2e T23b-2: the interceptor merges the global workspace stream — local g
     env.store.share('session-b')
     const shared = await collectFrames(iterator, 1)
     assert.deepEqual(shared, [
-      { type: 'upsert', workspace: { ...SERVER_W1, workspaceId: V('w-1'), title: `${SERVER_NAME} · 服务端一`, sessionIds: [V('session-a'), V('session-b')] } },
+      { type: 'upsert', workspace: { ...SERVER_W1, workspaceId: V('w-1'), title: '服务端一', sessionIds: [V('session-a'), V('session-b')] } },
     ])
 
     // External abort: the merged iteration ends and the server-side stream
@@ -3807,7 +3806,7 @@ test('e2e MS-9: two main servers pair into one sub-client — the sidebar merges
       workspace: {
         workspaceId: V1('w-1'),
         path: '/srv/first',
-        title: `${MS9_NAME}-1 · 甲工作区`,
+        title: '甲工作区',
         sessionIds: [V1('s1a')],
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
@@ -3839,7 +3838,7 @@ test('e2e MS-9: two main servers pair into one sub-client — the sidebar merges
     })
     const afterSecond = await collectFrames(iterator, 4)
     assert.deepEqual(afterSecond[0].workspace.workspaceId, V2('w-2'))
-    assert.deepEqual(afterSecond[0].workspace.title, `${MS9_NAME}-2 · 乙工作区`)
+    assert.deepEqual(afterSecond[0].workspace.title, '乙工作区')
     assert.deepEqual(afterSecond[1], { type: 'order', workspaceIds: ['ws-local', V1('w-1'), V2('w-2')] })
 
     // The unscoped list merges in the SAME pairing order: local rows first,
@@ -3882,7 +3881,7 @@ test('e2e MS-9: two main servers pair into one sub-client — the sidebar merges
         workspace: {
           workspaceId: V2('w-2'),
           path: '/srv/second',
-          title: `${MS9_NAME} · 乙工作区`,
+          title: '乙工作区',
           sessionIds: [V2('s2a')],
           createdAt: '2026-01-02T00:00:00.000Z',
           updatedAt: '2026-01-02T00:00:00.000Z',

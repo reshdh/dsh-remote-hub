@@ -37,7 +37,9 @@ test('writeStateFile lands 0600 with no .tmp leftover and independent updates ne
 
   // First write: serverId only (what loadServerId produces on a fresh home).
   writeStateFile(file, () => ({ version: 1, serverId: 'abcd1234' }))
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the state file is 0600 — it holds pairing tokens')
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the state file is 0600 — it holds pairing tokens')
+  }
   assert.equal(
     fs.readdirSync(path.dirname(file)).filter((name) => name.endsWith('.tmp')).length,
     0,
@@ -124,7 +126,9 @@ test('ensureStateMigrated moves serverId and sessions in and deletes the legacy 
   assert.deepEqual(state.sessions, { good: { sharedAt: 10, lastActivityAt: 20 } }, 'legal rows moved in, the bad row was dropped')
   assert.equal(fs.existsSync(path.join(dir, 'zen-remote-server.json')), false, 'legacy server file deleted after a successful write')
   assert.equal(fs.existsSync(path.join(dir, 'zen-remote-shares.json')), false, 'legacy shares file deleted after a successful write')
-  assert.equal(fs.statSync(stateFile).mode & 0o777, 0o600)
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(stateFile).mode & 0o777, 0o600)
+  }
 
   // Idempotent: a second run changes nothing.
   ensureStateMigrated(dir)

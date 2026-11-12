@@ -32,7 +32,7 @@ const loadEffect = () => import('../src/client/effects/permission-sheet.ts?' + M
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const ROOT = join(__dirname, '..')
-const css = readFileSync(join(ROOT, 'src', 'client', 'styles', 'composer.css.ts'), 'utf8')
+const css = readFileSync(join(ROOT, 'src', 'client', 'styles', 'composer.css.ts'), 'utf8').replace(/\r\n/g, '\n')
 // The template literal is the shipped stylesheet; slice past the module
 // constants so assertions cannot match the selector constants' prose.
 const sheet = css.slice(css.indexOf('export const COMPOSER_CSS'))

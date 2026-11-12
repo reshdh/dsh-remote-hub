@@ -1,9 +1,23 @@
 # 更新日志
 
-只记用户可感知的变化；每个 Release 的正文即本文件对应版本段，其下附逐提交
-完整列表，见
-[GitHub Releases](https://github.com/KyoMio/dsh-zen-remote/releases)（tag 驱动自动生成）。
-界面半边的细节叙事另见 [`docs/interface.md`](docs/interface.md) 的「更新日志」一节。
+只记用户可感知的变化；每个 Release 的正文即本文件对应版本段，见
+[GitHub Releases](https://github.com/reshdh/dsh-remote-hub/releases)。
+
+## 1.0.0（2026-11-12）
+
+基于上游 [`KyoMio/dsh-zen-remote`](https://github.com/KyoMio/dsh-zen-remote) `v2.4.2`（MIT）构建的首个独立发行版：
+
+### 新增
+
+- **桌面端多主机工作区分栏切换器（`HostWorkspaceSwitcher`）**：侧边栏顶部新增 `本机 / <远程主机> / 全部` 分栏切换条，带在线状态呼吸灯、顶部「新会话」自动按当前所选环境路由、统一视图工作区行主机尾标，以及 0 会话空目录即时可见与「暂无会话」提示；支持异常情况下 `sidebar.workspaces` 槽位自动恢复。
+- **远程目录浏览、新建文件夹与工作区管理（`/v1/workspace-manage`）**：拦截桌面端「添加工作区」按钮与 `Ctrl+O` 快捷键，支持浏览远程服务器目录树、切换显示隐藏目录、在线新建子文件夹、重命名与删除远程工作区。
+- **跨机 `@` 会话引用桥接（`session-ref-bridge`）**：打通本机与已配对远程主机之间的双向 `@` 会话候选检索与 `dsh-session:` 正文快照中转（`zr-extref~` 内存暂存），支持带 `【本机】` / `【远程主机】` 前缀的标题及纯文本 UUID 自动升级为可解析会话引用，并过滤未命名空白占位会话。
+- **模型渠道配置与 API 密钥自动同步**：子客户端修改自定义模型提供商、渠道端点或凭证引用时，自动镜像同步至已连接的远程主机（含内网/回环网关地址自适应重写），并实时推送 `llm/adapters-updated` 刷新模型选择器。
+- **无缝替代与共存防冲突保护**：保留 `~/.dsh/zen-remote` 状态文件与 `/_dsh/zen-remote/*` 协议兼容，无需重新配对即可平替；若检测到宿主进程已激活 `dsh-zen-remote`，自动输出提示并安全跳过挂载避免冲突。
+
+---
+
+以下为上游 `dsh-zen-remote` 历史更新记录：
 
 ## 2.4.2（2026-11-11）
 

@@ -1,20 +1,25 @@
-<h1 align="center">dsh-zen-remote</h1>
-<p align="center">One DeepSeek Harness plugin, two roles. The <b>host</b> turns DSH into a phone-reachable PWA (mobile UI, pairing gateway, lock-screen push) and shares chosen sessions to paired desktops. The <b>client</b> runs inside another DSH desktop app and puts the host's shared sessions right into its own sidebar (up to <b>8 hosts</b> connected simultaneously) — full history, live progress, messages, approvals, terminal, everything executes on the host.</p>
+<h1 align="center">dsh-remote-hub</h1>
+<p align="center">Multi-host remote workspace hub for DeepSeek Harness — extended from <a href="https://github.com/KyoMio/dsh-zen-remote"><code>KyoMio/dsh-zen-remote</code></a> (v2.4.2, MIT). Combines the mobile PWA gateway &amp; multi-host session relay with a desktop <b>Local / Remote / All workspace scope switcher</b>, <b>remote folder browser &amp; workspace creation</b>, <b>model &amp; API credential sync</b>, and <b>bidirectional cross-host <code>@</code> session reference bridging</b>.</p>
 
 <p align="center">
-<a href="https://www.npmjs.com/package/dsh-zen-remote"><img src="https://img.shields.io/npm/v/dsh-zen-remote?style=flat-square&color=5B4CF0&logo=npm&label=npm" alt="npm version"></a>
-<a href="https://www.npmjs.com/package/dsh-zen-remote"><img src="https://img.shields.io/npm/dm/dsh-zen-remote?style=flat-square&color=0B7285&label=downloads" alt="npm downloads"></a>
-<a href="https://github.com/KyoMio/dsh-zen-remote/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/KyoMio/dsh-zen-remote/publish.yml?style=flat-square&label=publish&logo=githubactions&logoColor=white" alt="publish workflow"></a>
+<a href="https://github.com/reshdh/dsh-remote-hub/releases"><img src="https://img.shields.io/github/v/release/reshdh/dsh-remote-hub?style=flat-square&color=5B4CF0&label=release" alt="GitHub release"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0B7285?style=flat-square" alt="MIT"></a>
-<br>
-<img src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.7%20%E2%80%93%200.2.x-4D6BFE?style=flat-square" alt="DeepSeek Harness 0.1.7 – 0.2.x">
-<img src="https://img.shields.io/node/v/dsh-zen-remote?style=flat-square&color=339933&logo=nodedotjs&logoColor=white" alt="Node">
-<a href="https://www.npmjs.com/package/dsh-zen-remote#provenance"><img src="https://img.shields.io/badge/npm-provenance%20signed-CB3837?style=flat-square&logo=npm&logoColor=white" alt="npm provenance"></a>
+<img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1+-4D6BFE?style=flat-square" alt="DeepSeek Harness 0.2.1+">
+<img src="https://img.shields.io/badge/Node-%3E%3D18-339933?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node >= 18">
 <img src="https://img.shields.io/badge/PWA-Web%20Push-5A0FC8?style=flat-square&logo=pwa&logoColor=white" alt="PWA + Web Push">
 <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript strict">
 </p>
 
 <p align="center"><a href="README.zh-CN.md">中文文档</a></p>
+
+> **Coexistence Note & Attribution**: `dsh-remote-hub` builds upon [`KyoMio/dsh-zen-remote`](https://github.com/KyoMio/dsh-zen-remote) (`v2.4.2`, MIT) and preserves full wire & state compatibility (`~/.dsh/zen-remote*`) so existing paired hosts and shared sessions work without re-pairing. **Disable or uninstall `dsh-zen-remote` before enabling `dsh-remote-hub`** (only one `zenRemote` provider can run per DSH profile).
+
+### Key Enhancements over `dsh-zen-remote`
+
+- **Host-Scoped Sidebar Switcher**: Switch cleanly between `Local`, individual paired remote hosts (with live online/connecting/offline status dots), and `All` unified view; scopes the top **New Session** button to the active host and keeps 0-session workspaces visible immediately.
+- **Remote Directory Browser & Workspace Manager**: Intercepts **Add Workspace** (`Ctrl+O`) to browse remote host directories, toggle hidden folders, create subdirectories (`mkdir`), and open/rename/delete remote workspaces directly from the desktop client.
+- **Bidirectional Cross-Host `@` Session References**: Query and `@`-mention sessions across your local machine and paired remote hosts (`dsh-session:` URI surface staging), with automatic host-tag labeling and plain-text UUID mention upgrading.
+- **Model Provider & Credential Sync**: Edits to custom LLM providers, endpoints, and API credentials on the client automatically mirror to connected remote hosts (adapting loopback/LAN gateway addresses) and trigger live model catalog refreshes.
 
 | Session list home | Session page | Session info card |
 | --- | --- | --- |
@@ -44,26 +49,28 @@
 
 ## 1. Install
 
-### Install from the UI (Recommended, Desktop App & Web UI)
+> If you previously installed `dsh-zen-remote`, disable or uninstall it first — `dsh-remote-hub` reuses your existing `~/.dsh/zen-remote*` state and pairings automatically.
 
-Open the **Plugins** page in the DSH sidebar → click **Add plugin** → type `dsh-zen-remote` → click **Enable now** when the install finishes, then restart the DSH desktop app (or `dsh web`).
+### Install from the UI (Desktop App & Web UI)
+
+Open the **Plugins** page in the DSH sidebar → search `dsh-remote-hub` in the Plugin Market (or click **Add plugin** and paste the GitHub Release tarball URL `https://github.com/reshdh/dsh-remote-hub/releases/download/v1.0.0/dsh-remote-hub-1.0.0.tgz`) → click **Enable now**, then restart DSH.
 
 ### Install from the CLI (Headless `dsh web` server)
 
 ```sh
-dsh plugin --profile web add dsh-zen-remote
-# then restart dsh web (or run `npx dsh-zen-remote setup` to install, start, and configure in one go)
+dsh plugin --profile web add https://github.com/reshdh/dsh-remote-hub/releases/download/v1.0.0/dsh-remote-hub-1.0.0.tgz
+# then restart dsh web (or run `dsh-remote-hub setup` to configure and pair)
 ```
 
 > `dsh plugin` requires `--profile` to name the target profile. The desktop app's `desktop` profile is managed exclusively by the app (`--profile desktop` is refused on the CLI), so use the UI install above on the desktop app.
 
-### Headless Server CLI Wizard (`dsh-zen-remote`)
+### Headless Server CLI Wizard (`dsh-remote-hub`)
 
 The plugin ships a bundled CLI tool so remote VPS / headless servers (`dsh web`) can complete the entire setup, ingress configuration, three-light verification, and QR / desktop pairing flow in a terminal without opening a browser:
 
 ```sh
-npx dsh-zen-remote setup        # 3-step interactive wizard: role → ingress → verify + terminal QR & desktop pairing
-dsh-zen-remote status           # current role, gateway & connection state (--json; --debug exports redacted diagnostics)
+dsh-remote-hub setup            # 3-step interactive wizard: role → ingress → verify + terminal QR & desktop pairing
+dsh-remote-hub status           # current role, gateway & connection state (--json; --debug exports redacted diagnostics)
 ```
 
 <details>
@@ -71,18 +78,18 @@ dsh-zen-remote status           # current role, gateway & connection state (--js
 
 ```sh
 # Host commands (when role is host)
-dsh-zen-remote host device pair --device-role web              # mint a phone/browser pairing code + terminal QR (or desktop-client)
-dsh-zen-remote host device list                                # list paired devices (--json supported)
-dsh-zen-remote host device revoke <id|--all> [--yes]           # revoke one or all paired devices
-dsh-zen-remote host ingress start --mode lan                   # configure & start ingress (caddy | cloudflared | external | lan)
-dsh-zen-remote host ingress stop [--yes]                       # stop managed Caddy / Cloudflare Tunnel processes
-dsh-zen-remote host ingress verify [--no-wait]                 # three-light check + mint web QR & desktop pairing codes
-dsh-zen-remote host ingress snippet [--proxy nginx|caddy|lucky] # print reverse-proxy config snippets
+dsh-remote-hub host device pair --device-role web              # mint a phone/browser pairing code + terminal QR (or desktop-client)
+dsh-remote-hub host device list                                # list paired devices (--json supported)
+dsh-remote-hub host device revoke <id|--all> [--yes]           # revoke one or all paired devices
+dsh-remote-hub host ingress start --mode lan                   # configure & start ingress (caddy | cloudflared | external | lan)
+dsh-remote-hub host ingress stop [--yes]                       # stop managed Caddy / Cloudflare Tunnel processes
+dsh-remote-hub host ingress verify [--no-wait]                 # three-light check + mint web QR & desktop pairing codes
+dsh-remote-hub host ingress snippet [--proxy nginx|caddy|lucky] # print reverse-proxy config snippets
 
 # Client commands (when role is client, up to 8 paired hosts)
-dsh-zen-remote client pair http://192.168.1.2:3088 --code 12345678 [--name My-Mac]
-dsh-zen-remote client list                                     # list all paired hosts (up to 8) and connection states
-dsh-zen-remote client unpair <hostUrl|entryId|--all> [--yes]   # remove one or all paired hosts
+dsh-remote-hub client pair http://192.168.1.2:3088 --code 12345678 [--name My-Mac]
+dsh-remote-hub client list                                     # list all paired hosts (up to 8) and connection states
+dsh-remote-hub client unpair <hostUrl|entryId|--all> [--yes]   # remove one or all paired hosts
 ```
 
 - **Preflight & non-interactive automation**: `setup` automatically scans candidate profiles for multi-select plugin installation (`desktop` is skipped) and launches the DSH daemon / app before starting the wizard. Pass `--yes` with the required flags (e.g. `setup --role host --ingress lan --no-wait --yes`) for unattended scripts.
@@ -93,13 +100,13 @@ dsh-zen-remote client unpair <hostUrl|entryId|--all> [--yes]   # remove one or a
 <details>
 <summary>Manual Profile Edit / Local Development (<code>link:</code>), Upgrading & Uninstall</summary>
 
-**Editing the profile by hand** (local development, `link:` installs): add the dependency to the profile's `package.json` (`~/.dsh/profiles/desktop` for the desktop app, `~/.dsh/profiles/web` for the web service) and append `"dsh-zen-remote"` to the `dsh.profile.bundles` array:
+**Editing the profile by hand** (local development, `link:` installs): add the dependency to the profile's `package.json` (`~/.dsh/profiles/desktop` for the desktop app, `~/.dsh/profiles/web` for the web service) and append `"dsh-remote-hub"` to the `dsh.profile.bundles` array:
 
 ```jsonc
 // ~/.dsh/profiles/desktop/package.json
 {
   "dependencies": {
-    "dsh-zen-remote": "^2.4.2"        // for local development: "link:/path/to/dsh-zen-remote"
+    "dsh-remote-hub": "^1.0.0"        // for local development: "link:/path/to/dsh-remote-hub"
   }
 }
 ```

@@ -112,26 +112,28 @@ function baseDelegate(overrides = {}) {
 
 // ---- candidateSocketPaths（纯函数，两平台都钉形状） -----------------------------
 
-test('candidateSocketPaths: unix 下从 zen-remote-cli.sock 退到 -8.sock；win32 是命名管道', async () => {
+test('candidateSocketPaths: unix 下从 remote-hub-cli.sock 退到 -8.sock；win32 是命名管道', async () => {
   const { candidateSocketPaths, CLI_SOCKET_BASENAME } = await import(IPC_URL)
-  assert.equal(CLI_SOCKET_BASENAME, 'zen-remote-cli')
+  assert.equal(CLI_SOCKET_BASENAME, 'remote-hub-cli')
 
   const unix = candidateSocketPaths('/home/x/.dsh', 'linux')
   assert.equal(unix.length, 8)
-  assert.equal(unix[0], path.join('/home/x/.dsh', 'zen-remote-cli.sock'))
-  assert.equal(unix[1], path.join('/home/x/.dsh', 'zen-remote-cli-2.sock'))
-  assert.equal(unix[7], path.join('/home/x/.dsh', 'zen-remote-cli-8.sock'))
+  assert.equal(unix[0], path.join('/home/x/.dsh', 'remote-hub-cli.sock'))
+  assert.equal(unix[1], path.join('/home/x/.dsh', 'remote-hub-cli-2.sock'))
+  assert.equal(unix[7], path.join('/home/x/.dsh', 'remote-hub-cli-8.sock'))
 
   const win = candidateSocketPaths('C:\\home\\.dsh', 'win32')
   assert.equal(win.length, 8)
-  assert.equal(win[0], '\\\\.\\pipe\\dsh-zen-remote-cli')
-  assert.equal(win[1], '\\\\.\\pipe\\dsh-zen-remote-cli-2')
-  assert.equal(win[7], '\\\\.\\pipe\\dsh-zen-remote-cli-8')
+  assert.match(win[0], /^\\\\\.\\pipe\\dsh-remote-hub-cli-[0-9a-f]{8}$/)
+  assert.equal(win[1], `${win[0]}-2`)
+  assert.equal(win[7], `${win[0]}-8`)
+  const winOther = candidateSocketPaths('C:\\other\\.dsh', 'win32')
+  assert.notEqual(win[0], winOther[0], 'distinct dshHome directories isolate Windows named pipes')
 })
 
 // ---- 验收 1：socket 绑定 / 占用退避 / 死文件清理复用 ------------------------------
 
-test('IPC socket 绑定到 zen-remote-cli.sock（0600）；被占用时退到 -2.sock；死文件清理后原路径复用', { skip: IS_WIN }, async () => {
+test('IPC socket 绑定到 remote-hub-cli.sock（0600）；被占用时退到 -2.sock；死文件清理后原路径复用', { skip: IS_WIN }, async () => {
   const ipc = await import(IPC_URL)
   const home = makeHome('bind')
   const first = baseDelegate()
@@ -141,7 +143,7 @@ test('IPC socket 绑定到 zen-remote-cli.sock（0600）；被占用时退到 -2
   try {
     // 首个实例绑定首选路径，权限 0600。
     serverA = await ipc.createCliIpcServer({ dshHome: home, delegate: first.delegate })
-    const firstPath = path.join(home, 'zen-remote-cli.sock')
+    const firstPath = path.join(home, 'remote-hub-cli.sock')
     assert.equal(serverA.socketPath, firstPath)
     assert.ok(fs.existsSync(firstPath), 'socket file exists')
     assert.equal(fs.statSync(firstPath).isSocket(), true, 'it is a socket, not a regular file')
@@ -152,7 +154,7 @@ test('IPC socket 绑定到 zen-remote-cli.sock（0600）；被占用时退到 -2
 
     // 对端存活的占用 → 退避到 -2.sock，首个 server 不受影响。
     serverB = await ipc.createCliIpcServer({ dshHome: home, delegate: second.delegate })
-    assert.equal(serverB.socketPath, path.join(home, 'zen-remote-cli-2.sock'))
+    assert.equal(serverB.socketPath, path.join(home, 'remote-hub-cli-2.sock'))
     const pingA2 = await sockRequest(firstPath, 'GET', ipc.CLI_PING_ROUTE)
     assert.equal(pingA2.status, 200, 'the first socket is untouched by the backoff')
     const pingB = await sockRequest(serverB.socketPath, 'GET', ipc.CLI_PING_ROUTE)
@@ -161,7 +163,7 @@ test('IPC socket 绑定到 zen-remote-cli.sock（0600）；被占用时退到 -2
     // 死文件（普通文件占位）→ 探测失败 → 清理 → 原路径复用绑定。
     const deadHome = makeHome('dead')
     try {
-      const deadPath = path.join(deadHome, 'zen-remote-cli.sock')
+      const deadPath = path.join(deadHome, 'remote-hub-cli.sock')
       fs.writeFileSync(deadPath, 'not a socket')
       const third = baseDelegate()
       const serverC = await ipc.createCliIpcServer({ dshHome: deadHome, delegate: third.delegate })
@@ -585,8 +587,8 @@ test('接线端到端：连续两次 index.apply 切换 host -> client，socket 
     // host 的第三个顶层 effect（桥注册表、闲置扫描、重启 watcher）。
     index.apply(ctx, { role: 'host' })
     assert.equal(effects.length, 3, 'host 仍是三个顶层 effect（IPC 没有新增）')
-    const sockPath = path.join(home, 'zen-remote-cli.sock')
-    await waitFor(() => fs.existsSync(sockPath), 3000, 'bound after the first apply')
+    const sockPath = ipc.candidateSocketPaths(home)[0]
+    await waitFor(async () => (await sockRequestError(sockPath, 'GET', ipc.CLI_PING_ROUTE)).status === 200, 3000, 'bound after the first apply')
     const ping1 = await sockRequest(sockPath, 'GET', ipc.CLI_PING_ROUTE)
     assert.equal(JSON.parse(ping1.body).role, 'host')
 
@@ -596,6 +598,7 @@ test('接线端到端：连续两次 index.apply 切换 host -> client，socket 
     const oldRowDisposer = effects[2]
     assert.equal(typeof oldRowDisposer, 'function')
     oldRowDisposer()
+    effects[2] = undefined
     // 宽限期被新行持有挡住 → socket 仍在原路径。
     await sleep(ipc.CLI_CLOSE_GRACE_MS + 50)
     const ping2 = await sockRequest(sockPath, 'GET', ipc.CLI_PING_ROUTE)
@@ -604,9 +607,11 @@ test('接线端到端：连续两次 index.apply 切换 host -> client，socket 
     assert.equal(body2.role, 'client', 'ping immediately reflects the new role')
     assert.equal(body2.serves, false)
     assert.equal(body2.connects, true)
-    // 新行的 effect 清理照常工作（这之后宽限期关闭由 acquire 测试覆盖）。
-    for (const disposer of effects.slice(3)) disposer()
   } finally {
+    for (const disposer of effects) {
+      if (typeof disposer === 'function') disposer()
+    }
+    await sleep(ipc.CLI_CLOSE_GRACE_MS + 80)
     cleanup(home)
     if (savedHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = savedHome
@@ -618,18 +623,21 @@ test('热重载：两次 acquire 换 delegate，socket 路径不变不断连；�
   const home = makeHome('reload')
   const hostSide = baseDelegate({ role: 'host', serverName: 'host-side' })
   const clientSide = baseDelegate({ role: 'client', serverName: 'client-side' })
+  let handle1
+  let handle2
   try {
     // 行 1 apply：绑定。
-    const handle1 = ipc.acquireCliIpcServer(home, hostSide.delegate)
-    const sockPath = path.join(home, 'zen-remote-cli.sock')
-    await waitFor(() => fs.existsSync(sockPath), 3000, 'the socket file appears')
+    handle1 = ipc.acquireCliIpcServer(home, hostSide.delegate)
+    const sockPath = ipc.candidateSocketPaths(home)[0]
+    await waitFor(async () => (await sockRequestError(sockPath, 'GET', ipc.CLI_PING_ROUTE)).status === 200, 3000, 'the socket appears')
     const ping1 = await sockRequest(sockPath, 'GET', ipc.CLI_PING_ROUTE)
     assert.equal(JSON.parse(ping1.body).role, 'host')
 
     // 行 2 apply（模拟热重载）：同一进程同一 home → 复用同一 server，只换 delegate。
-    const handle2 = ipc.acquireCliIpcServer(home, clientSide.delegate)
+    handle2 = ipc.acquireCliIpcServer(home, clientSide.delegate)
     // cordis 顺序：新行 apply 完成后旧行的清理才跑 → release 行 1。
     handle1.release()
+    handle1 = undefined
     // 宽限期内新行仍持有 → 不关闭。
     await sleep(ipc.CLI_CLOSE_GRACE_MS + 50)
     const ping2 = await sockRequest(sockPath, 'GET', ipc.CLI_PING_ROUTE)
@@ -642,10 +650,17 @@ test('热重载：两次 acquire 换 delegate，socket 路径不变不断连；�
 
     // 最后一行 release：宽限期后关闭 + 清理 socket 文件。
     handle2.release()
-    await waitFor(() => !fs.existsSync(sockPath), ipc.CLI_CLOSE_GRACE_MS + 2000, 'the socket file is cleaned after the grace period')
+    handle2 = undefined
+    await waitFor(
+      async () => (IS_WIN ? (await sockRequestError(sockPath, 'GET', ipc.CLI_PING_ROUTE)).error !== null : !fs.existsSync(sockPath)),
+      ipc.CLI_CLOSE_GRACE_MS + 2000,
+      'the socket is closed and cleaned after the grace period',
+    )
     const dead = await sockRequestError(sockPath, 'GET', ipc.CLI_PING_ROUTE)
     assert.notEqual(dead.error, null, 'ping after close fails (connection refused / ENOENT)')
   } finally {
+    if (handle1 !== undefined) handle1.release()
+    if (handle2 !== undefined) handle2.release()
     cleanup(home)
   }
 })
@@ -662,21 +677,28 @@ test('热重载后 IPC 路由门禁立即跟随新 delegate 的角色', async ()
     res.end(JSON.stringify({ ok: true, via: 'admin' }))
   } })
   const clientSide = baseDelegate({ role: 'client' })
+  let handle1
+  let handle2
   try {
-    const handle1 = ipc.acquireCliIpcServer(home, hostSide.delegate)
-    const sockPath = path.join(home, 'zen-remote-cli.sock')
-    await waitFor(() => fs.existsSync(sockPath), 3000, 'bound')
+    handle1 = ipc.acquireCliIpcServer(home, hostSide.delegate)
+    const sockPath = ipc.candidateSocketPaths(home)[0]
+    await waitFor(async () => (await sockRequestError(sockPath, 'GET', ipc.CLI_PING_ROUTE)).status === 200, 3000, 'bound')
     const before = await sockRequest(sockPath, 'GET', '/_dsh/zen-remote/admin/status')
     assert.equal(before.status, 200)
     assert.equal(JSON.parse(before.body).via, 'admin')
 
-    const handle2 = ipc.acquireCliIpcServer(home, clientSide.delegate)
+    handle2 = ipc.acquireCliIpcServer(home, clientSide.delegate)
     handle1.release()
+    handle1 = undefined
     const after = await sockRequest(sockPath, 'GET', '/_dsh/zen-remote/admin/status')
     assert.equal(after.status, 409, 'the NEW delegate is client: admin routes refuse')
     assert.equal(JSON.parse(after.body).error.required, 'host')
     handle2.release()
+    handle2 = undefined
+    await sleep(ipc.CLI_CLOSE_GRACE_MS + 80)
   } finally {
+    if (handle1 !== undefined) handle1.release()
+    if (handle2 !== undefined) handle2.release()
     cleanup(home)
   }
 })

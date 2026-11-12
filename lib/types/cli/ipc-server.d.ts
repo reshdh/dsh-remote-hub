@@ -32,8 +32,8 @@ export declare const CLI_PROTOCOL_VERSION = 1;
 export declare const CLI_PING_ROUTE = "/_dsh/zen-remote/cli/ping";
 /** The config-write route (POST `{set, unset}` → the anti-shadowing writer). */
 export declare const CLI_CONFIG_ROUTE = "/_dsh/zen-remote/cli/config";
-/** Socket file / pipe basename: `zen-remote-cli.sock`, `-2.sock`, … */
-export declare const CLI_SOCKET_BASENAME = "zen-remote-cli";
+/** Socket file / pipe basename: `remote-hub-cli.sock`, `-2.sock`, … */
+export declare const CLI_SOCKET_BASENAME = "remote-hub-cli";
 /** How long a fully-released IPC server waits for a re-acquire (the hot
  * reload window: cordis runs the OLD row's disposer AFTER the new apply, so
  * refcount 0 is momentary during every reload). Exported for tests. */

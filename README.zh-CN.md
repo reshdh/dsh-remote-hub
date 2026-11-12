@@ -1,20 +1,25 @@
-<h1 align="center">dsh-zen-remote</h1>
-<p align="center">一个 DeepSeek Harness 插件、两种角色。<b>主服务端</b>把 DSH 变成手机能安全访问的 PWA（手机界面、配对网关、锁屏推送），并把选定的会话共享给已配对的桌面端；<b>子客户端</b>跑在另一台 DSH 桌面端里，可同时连接<b>最多 8 台主服务端</b>，把服务端共享的会话直接摆进自己的侧边栏——完整历史、实时进度、发消息、审批、终端，全部在服务端执行。</p>
+<h1 align="center">dsh-remote-hub</h1>
+<p align="center">DeepSeek Harness 多端协同远程工作区中枢插件 —— 基于 <a href="https://github.com/KyoMio/dsh-zen-remote"><code>KyoMio/dsh-zen-remote</code></a>（v2.4.2，MIT）深度扩展。在保留手机 PWA 网关、锁屏推送与最多 8 台主服务端并发连接的基础上，新增桌面端<b>本机 / 远程主机 / 全部工作区分栏切换</b>、<b>远程目录浏览与创建</b>、<b>模型渠道及 API 密钥自动同步</b>，以及<b>跨机双向 <code>@</code> 会话引用桥接</b>。</p>
 
 <p align="center">
-<a href="https://www.npmjs.com/package/dsh-zen-remote"><img src="https://img.shields.io/npm/v/dsh-zen-remote?style=flat-square&color=5B4CF0&logo=npm&label=npm" alt="npm version"></a>
-<a href="https://www.npmjs.com/package/dsh-zen-remote"><img src="https://img.shields.io/npm/dm/dsh-zen-remote?style=flat-square&color=0B7285&label=downloads" alt="npm downloads"></a>
-<a href="https://github.com/KyoMio/dsh-zen-remote/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/KyoMio/dsh-zen-remote/publish.yml?style=flat-square&label=publish&logo=githubactions&logoColor=white" alt="publish workflow"></a>
+<a href="https://github.com/reshdh/dsh-remote-hub/releases"><img src="https://img.shields.io/github/v/release/reshdh/dsh-remote-hub?style=flat-square&color=5B4CF0&label=release" alt="GitHub release"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0B7285?style=flat-square" alt="MIT"></a>
-<br>
-<img src="https://img.shields.io/badge/DeepSeek%20Harness-0.1.7%20%E2%80%93%200.2.x-4D6BFE?style=flat-square" alt="DeepSeek Harness 0.1.7 – 0.2.x">
-<img src="https://img.shields.io/node/v/dsh-zen-remote?style=flat-square&color=339933&logo=nodedotjs&logoColor=white" alt="Node">
-<a href="https://www.npmjs.com/package/dsh-zen-remote#provenance"><img src="https://img.shields.io/badge/npm-provenance%20signed-CB3837?style=flat-square&logo=npm&logoColor=white" alt="npm provenance"></a>
+<img src="https://img.shields.io/badge/DeepSeek%20Harness-0.2.1+-4D6BFE?style=flat-square" alt="DeepSeek Harness 0.2.1+">
+<img src="https://img.shields.io/badge/Node-%3E%3D18-339933?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node >= 18">
 <img src="https://img.shields.io/badge/PWA-Web%20Push-5A0FC8?style=flat-square&logo=pwa&logoColor=white" alt="PWA + Web Push">
 <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript strict">
 </p>
 
 <p align="center"><a href="README.md">English</a></p>
+
+> **兼容与共存说明（致谢上游）**：`dsh-remote-hub` 基于 [`KyoMio/dsh-zen-remote`](https://github.com/KyoMio/dsh-zen-remote)（`v2.4.2`，MIT）开发，完整复用 `~/.dsh/zen-remote*` 状态文件与中继协议，既有配对设备与共享会话无需重新配对即可无缝接管。**启用 `dsh-remote-hub` 前请先在插件页停用或卸载 `dsh-zen-remote`**（同一 DSH Profile 内仅能运行一个 `zenRemote` 服务提供方）。
+
+### 相比 `dsh-zen-remote` 的核心增强
+
+- **桌面侧边栏环境分栏切换器**：侧边栏顶部提供 `本机 / <远程主机> / 全部` 分段切换条（带实时在线状态指示灯），顶部「新会话」按钮自动跟随当前环境路由，支持 0 会话空远程工作区即时显示与「暂无会话」占位提示。
+- **远程目录浏览器与工作区创建**：拦截桌面端「添加工作区」（`Ctrl+O`），支持直接浏览远程主机文件系统、显示隐藏目录、在线新建子文件夹（`mkdir`），以及一键将远程目录添加为工作区并支持重命名与删除。
+- **跨机双向 `@` 会话引用桥接**：支持在本机会话与远程主机会话之间双向检索 `@` 历史会话候选并透明中转只读会话快照（`dsh-session:` URI），支持 `【本机】` / `【远程主机】` 标签区分与纯文本 UUID 引用自动升级。
+- **模型渠道与 API 密钥双向同步**：在桌面客户端新增或修改模型渠道、端点及 API 密钥时，自动镜像同步至已连接的远程主机（自动适配本机回环与局域网网关地址）并实时刷新模型下拉菜单。
 
 | 会话列表主屏 | 会话页 | 会话信息卡 |
 | --- | --- | --- |
@@ -44,26 +49,28 @@
 
 ## 1. 安装
 
+> 若此前已安装 `dsh-zen-remote`，请先在插件页停用或卸载它；`dsh-remote-hub` 会自动继承 `~/.dsh/zen-remote*` 中的全部配对信息与共享状态。
+
 ### 界面一键安装（推荐，桌面端 App 与 Web 端通用）
 
-打开 DSH 左侧**「插件」**页 → 点击**「添加插件」**→ 输入 `dsh-zen-remote` → 安装完成后点击**「立即启用」**，然后重启 DSH 桌面端 App（或 `dsh web`）。
+打开 DSH 左侧**「插件」**页 → 在插件市场搜索 `dsh-remote-hub`（或点击**「添加插件」**粘贴 GitHub Release 预构建包地址 `https://github.com/reshdh/dsh-remote-hub/releases/download/v1.0.0/dsh-remote-hub-1.0.0.tgz`）→ 安装完成后点击**「立即启用」**并重启 DSH。
 
 ### Web 服务命令行安装（无头服务器 `dsh web`）
 
 ```sh
-dsh plugin --profile web add dsh-zen-remote
-# 然后重启 dsh web（或直接运行 npx dsh-zen-remote setup 一键完成安装、拉起与向导配置）
+dsh plugin --profile web add https://github.com/reshdh/dsh-remote-hub/releases/download/v1.0.0/dsh-remote-hub-1.0.0.tgz
+# 然后重启 dsh web（或运行 dsh-remote-hub setup 完成向导配置与配对）
 ```
 
 > `dsh plugin` 必须带 `--profile` 指定目标 profile。桌面端的 `desktop` profile 由 App 独占管理，命令行会拒绝 `--profile desktop`，桌面端请直接使用上面的界面安装。
 
-### 无头服务器 CLI 一键向导（`dsh-zen-remote`）
+### 无头服务器 CLI 一键向导（`dsh-remote-hub`）
 
 插件自带同包分发的命令行工具，远程 VPS 与无头环境（`dsh web`）无需打开浏览器插件页，在终端即可完成全部接入配置、三灯连通验证与扫码 / 配对码配对：
 
 ```sh
-npx dsh-zen-remote setup        # 三步交互向导：选角色 → 选接入方式 → 三灯验证 + 终端二维码 / 桌面配对码
-dsh-zen-remote status           # 查看当前角色、网关与连接状态（--json 机器可读；--debug 导出脱敏诊断报告）
+dsh-remote-hub setup            # 三步交互向导：选角色 → 选接入方式 → 三灯验证 + 终端二维码 / 桌面配对码
+dsh-remote-hub status           # 查看当前角色、网关与连接状态（--json 机器可读；--debug 导出脱敏诊断报告）
 ```
 
 <details>
@@ -71,18 +78,18 @@ dsh-zen-remote status           # 查看当前角色、网关与连接状态（-
 
 ```sh
 # 主服务端命令（role 为 host 时可用）
-dsh-zen-remote host device pair --device-role web              # 生成手机/浏览器配对二维码与 8 位码（或 desktop-client）
-dsh-zen-remote host device list                                # 列出全部已配对设备（支持 --json）
-dsh-zen-remote host device revoke <id|--all> [--yes]           # 吊销单台或全部已配对设备
-dsh-zen-remote host ingress start --mode lan                   # 配置并启动公网入口（caddy | cloudflared | external | lan）
-dsh-zen-remote host ingress stop [--yes]                       # 停止托管的 Caddy / Cloudflare Tunnel 进程
-dsh-zen-remote host ingress verify [--no-wait]                 # 三灯连通自检并同时打印手机二维码与桌面客户端配对码
-dsh-zen-remote host ingress snippet [--proxy nginx|caddy|lucky] # 打印反向代理配置片段
+dsh-remote-hub host device pair --device-role web              # 生成手机/浏览器配对二维码与 8 位码（或 desktop-client）
+dsh-remote-hub host device list                                # 列出全部已配对设备（支持 --json）
+dsh-remote-hub host device revoke <id|--all> [--yes]           # 吊销单台或全部已配对设备
+dsh-remote-hub host ingress start --mode lan                   # 配置并启动公网入口（caddy | cloudflared | external | lan）
+dsh-remote-hub host ingress stop [--yes]                       # 停止托管的 Caddy / Cloudflare Tunnel 进程
+dsh-remote-hub host ingress verify [--no-wait]                 # 三灯连通自检并同时打印手机二维码与桌面客户端配对码
+dsh-remote-hub host ingress snippet [--proxy nginx|caddy|lucky] # 打印反向代理配置片段
 
 # 子客户端命令（role 为 client 时可用，最多同时连接 8 台主服务端）
-dsh-zen-remote client pair http://192.168.1.2:3088 --code 12345678 [--name My-Mac]
-dsh-zen-remote client list                                     # 列出已配对的主服务端（最多 8 台）及在线状态
-dsh-zen-remote client unpair <hostUrl|entryId|--all> [--yes]   # 移除单台或全部已配对的主服务端
+dsh-remote-hub client pair http://192.168.1.2:3088 --code 12345678 [--name My-Mac]
+dsh-remote-hub client list                                     # 列出已配对的主服务端（最多 8 台）及在线状态
+dsh-remote-hub client unpair <hostUrl|entryId|--all> [--yes]   # 移除单台或全部已配对的主服务端
 ```
 
 - **自动预检与脚本化**：`setup` 会先自动扫描候选 profile 多选安装插件（自动跳过 `desktop`）并拉起 DSH 守护进程 / 应用，再进入三步向导；非交互脚本加 `--yes` 并附上参数（如 `setup --role host --ingress lan --no-wait --yes`）即可零提问跑完。
@@ -93,13 +100,13 @@ dsh-zen-remote client unpair <hostUrl|entryId|--all> [--yes]   # 移除单台或
 <details>
 <summary>手动编辑 Profile / 本地开发（<code>link:</code> 安装）与升级、卸载说明</summary>
 
-**手工改 profile**（本地开发、`link:` 装法）：把依赖写进 profile 的 `package.json`（桌面端在 `~/.dsh/profiles/desktop`，Web 端在 `~/.dsh/profiles/web`），并确保 `"dsh-zen-remote"` 已加入同文件 `dsh.profile.bundles` 数组末尾：
+**手工改 profile**（本地开发、`link:` 装法）：把依赖写进 profile 的 `package.json`（桌面端在 `~/.dsh/profiles/desktop`，Web 端在 `~/.dsh/profiles/web`），并确保 `"dsh-remote-hub"` 已加入同文件 `dsh.profile.bundles` 数组末尾：
 
 ```jsonc
 // ~/.dsh/profiles/desktop/package.json
 {
   "dependencies": {
-    "dsh-zen-remote": "^2.4.2"        // 本地开发换成 "link:/path/to/dsh-zen-remote"
+    "dsh-remote-hub": "^1.0.0"        // 本地开发换成 "link:/path/to/dsh-remote-hub"
   }
 }
 ```

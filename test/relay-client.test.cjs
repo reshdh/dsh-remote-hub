@@ -1648,6 +1648,7 @@ test('T59 queueDeviceName: online push, same-name no-op, offline queued for the 
     await client.connect()
     client.queueDeviceName('书房的新名字')
     await waitFor(() => relay.seen.some((hit) => hit.url === DEVICE_NAME))
+    await waitFor(() => client.handshakeInfo.deviceName === '书房的新名字')
     const push = relay.seen.find((hit) => hit.url === DEVICE_NAME)
     assert.deepEqual(push.body, { name: '书房的新名字' })
     assert.equal(push.headers.authorization, 'Bearer tok-1')
@@ -1967,12 +1968,14 @@ test('T59-fix2: a FAILED push with the link still up retries on the refresh cade
     client.queueDeviceName('B')
     const pushes = () => relay.seen.filter((hit) => hit.url === DEVICE_NAME).length
     await waitFor(() => pushes() === 1)
+    await sleep(30)
     assert.equal(client.state, 'online')
     assert.equal(client.deviceNameSyncing, true, 'queued after the failure')
 
     // One refresh tick: the queued name retries (still 500).
     clock.advance(30_000)
     await waitFor(() => pushes() === 2)
+    await sleep(30)
     assert.equal(client.deviceNameSyncing, true, 'still queued after the second refusal')
 
     // The gateway recovers (the admin's problem went away): the next tick

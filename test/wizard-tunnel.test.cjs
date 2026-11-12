@@ -122,7 +122,9 @@ test('the full chain: zone → create → ingress(actual port) → CNAME → tok
   assert.deepEqual(cfCalls, [['stop-caddy'], ['cf-start', 'fresh-connector-secret']])
   const tokenPath = path.join(home, 'zen-remote-ingress', 'tunnel-token')
   assert.equal(fs.readFileSync(tokenPath, 'utf8'), 'fresh-connector-secret')
-  assert.equal(fs.statSync(tokenPath).mode & 0o777, 0o600)
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(tokenPath).mode & 0o777, 0o600)
+  }
 })
 
 test('a same-name tunnel refuses with the list; adopting one switches to the token endpoint', async () => {

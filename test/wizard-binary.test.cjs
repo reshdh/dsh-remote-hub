@@ -167,7 +167,9 @@ test('binaryPath answers the path only for an existing executable file', async (
   fs.mkdirSync(path.dirname(installPath), { recursive: true })
   fs.writeFileSync(installPath, '#!/bin/sh\n')
   fs.chmodSync(installPath, 0o644)
-  assert.equal(binaryIo.binaryPath(home, 'caddy', { os: 'linux', arch: 'amd64' }), undefined, 'non-executable does not count')
+  if (process.platform !== 'win32') {
+    assert.equal(binaryIo.binaryPath(home, 'caddy', { os: 'linux', arch: 'amd64' }), undefined, 'non-executable does not count')
+  }
   fs.chmodSync(installPath, 0o755)
   assert.equal(binaryIo.binaryPath(home, 'caddy', { os: 'linux', arch: 'amd64' }), installPath)
   fs.rmSync(installPath)
@@ -198,7 +200,9 @@ test('downloadBinary installs a bare binary with 0755 atomically (self-checked E
   })
   assert.equal(installPath, binary.binaryInstallPath(home, 'cloudflared', { os: 'linux', arch: 'amd64' }))
   assert.deepEqual(fs.readFileSync(installPath), payload)
-  assert.equal(fs.statSync(installPath).mode & 0o777, 0o755, 'the image is installed executable')
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(installPath).mode & 0o777, 0o755, 'the image is installed executable')
+  }
   assert.ok(!fs.existsSync(`${installPath}.part`), 'no .part leftover')
   assert.ok(progress.length > 0 && progress.at(-1)[0] === payload.length, 'progress reports the full byte count')
   assert.equal(progress.at(-1)[1], payload.length, 'the declared total rides along')
@@ -220,7 +224,9 @@ test('downloadBinary unpacks a .tgz archive (the darwin cloudflared shape) and s
   })
   assert.equal(installPath, binary.binaryInstallPath(home, 'cloudflared', { os: 'darwin', arch: 'arm64' }))
   assert.deepEqual(fs.readFileSync(installPath), payload, 'the archive entry landed as the installed image')
-  assert.equal(fs.statSync(installPath).mode & 0o777, 0o755)
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(installPath).mode & 0o777, 0o755)
+  }
   assert.ok(!fs.existsSync(`${installPath}.download.tgz`), 'the archive sibling is cleaned up')
   fs.rmSync(installPath)
 })
@@ -244,7 +250,9 @@ test('GW-fix-1/H1: the Caddy bare-binary chain — download, self-check, install
   assert.equal(installPath, binary.binaryInstallPath(home, 'caddy', { os: 'linux', arch: 'amd64' }))
   assert.equal(installPath, path.join(home, 'zen-remote-ingress', 'bin', 'caddy'))
   assert.deepEqual(fs.readFileSync(installPath), payload, 'the caddy image landed byte-for-byte')
-  assert.equal(fs.statSync(installPath).mode & 0o777, 0o755)
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(installPath).mode & 0o777, 0o755)
+  }
   assert.ok(!fs.existsSync(`${installPath}.download.tgz`), 'no archive leftover')
   assert.ok(!fs.existsSync(`${installPath}.part`), 'no .part leftover')
   // Second ensure: the cache answers, no fetch again.

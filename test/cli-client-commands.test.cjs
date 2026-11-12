@@ -479,7 +479,7 @@ test('角色门禁：host 角色跑 client list/pair/unpair 全部退出码 1，
       assert.equal(codes[i], 1, `client ${command} exits 1 under the host role`)
       const text = ctxs[i].stdout.text()
       assert.match(text, /当前 role 是 host，不连接远端 host/u, `${command} names the role verdict`)
-      assert.match(text, /dsh-zen-remote setup --role client/u, `${command} names the switch command`)
+      assert.match(text, /dsh-remote-hub setup --role client/u, `${command} names the switch command`)
     }
     // 全程除 ping（内置路由）外没有任何 client 路由请求外泄。
     assert.deepEqual(canned.requests.filter((r) => r.path.startsWith('/_dsh/zen-remote/client/')), [])

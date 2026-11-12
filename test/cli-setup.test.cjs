@@ -257,7 +257,7 @@ test('main: 无参运行与 --help 输出双语完整命令树返回 0，不进�
     const out = captureStdout()
     const code = await runCli(argv, runOpts({ stdout: out, extra: { env: zhEnv } }))
     assert.equal(code, 0, `bare run exits 0 (${argv.join(' ')})`)
-    assert.match(out.text(), /dsh-zen-remote —— DeepSeek Harness 远程接入命令行/u, 'the zh help title is printed')
+    assert.match(out.text(), /dsh-remote-hub —— DeepSeek Harness 远程接入命令行/u, 'the zh help title is printed')
     assert.match(out.text(), /setup {2}交互式配置向导/u, 'the setup command is listed')
     assert.match(out.text(), /host device pair/u, 'the host family is listed')
     assert.match(out.text(), /client pair/u, 'the client family is listed')
@@ -266,7 +266,7 @@ test('main: 无参运行与 --help 输出双语完整命令树返回 0，不进�
   const enOut = captureStdout()
   const en = await runCli(['--help'], runOpts({ stdout: enOut, extra: { env: { LC_ALL: 'en_US.UTF-8' } } }))
   assert.equal(en, 0)
-  assert.match(enOut.text(), /Usage: dsh-zen-remote <command>/u)
+  assert.match(enOut.text(), /Usage: dsh-remote-hub <command>/u)
   assert.match(enOut.text(), /peer is not enabled yet/u)
   assert.doesNotMatch(enOut.text(), /[\u4e00-\u9fff]/u, 'the en help has no Chinese')
 })
@@ -323,7 +323,7 @@ test('main: 未知命令与非交互缺必填参数——结构化双语错误�
 // 验收 2：全新机器首次 setup 全流程（安装 → 拉起 → 选 host → 选 lan → 三灯）
 // ===========================================================================
 
-test('setup 全新机器：多选安装 web → open -a 拉起 DSH → 选 host → 选 lan → 三灯全亮 + 二维码 + 摘要', { timeout: 30000 }, async () => {
+test('setup 全新机器：多选安装 web → open -a 拉起 DSH → 选 host → 选 lan → 三灯全亮 + 二维码 + 摘要', { timeout: 30000, skip: process.platform === 'win32' }, async () => {
   const mods = await loadModules()
   const home = makeHome('fresh-full')
   mkdirIn(home, 'profiles', 'work') // 一个没装插件的候选 profile；web 目录不存在也要保底
@@ -368,7 +368,7 @@ test('setup 全新机器：多选安装 web → open -a 拉起 DSH → 选 host 
     assert.equal(code, 0, `the fresh-machine run succeeds (${out.text()})`)
 
     // 安装：代跑一次 dsh plugin add，目标是默认勾选的 web。
-    assert.deepEqual(spawnCalls, [['dsh', ['plugin', '--profile', 'web', 'add', 'dsh-zen-remote']]])
+    assert.deepEqual(spawnCalls, [['dsh', ['plugin', '--profile', 'web', 'add', 'dsh-remote-hub']]])
     const multi = prompter.calls.find((c) => c.kind === 'multi')
     assert.ok(multi, 'the install multi-select was asked')
     assert.equal(multi.choices[0], 'web', 'web is synthesized at index 0')
@@ -894,7 +894,7 @@ test('setup 预检：安装时选中的 preferredProfile 透传——无守护�
       },
     }))
     assert.equal(code, 1, 'no-daemon is a failure')
-    assert.deepEqual(spawnCalls, [['dsh', ['plugin', '--profile', 'work', 'add', 'dsh-zen-remote']]])
+    assert.deepEqual(spawnCalls, [['dsh', ['plugin', '--profile', 'work', 'add', 'dsh-remote-hub']]])
     assert.match(out.text(), /dsh --profile work web/u, 'the manual guidance names the CHOSEN profile, not the web default')
   } finally {
     cleanup(home)
@@ -918,12 +918,14 @@ function execNode(args, env, timeoutMs = 20000) {
 
 test('bin: 真实子进程 node bin/zen-remote.mjs --help 与 --version 返回 0', { timeout: 30000 }, async () => {
   assert.equal(fs.existsSync(BIN_PATH), true, 'bin/zen-remote.mjs exists')
-  const mode = fs.statSync(BIN_PATH).mode & 0o777
-  assert.ok((mode & 0o111) !== 0, `the bin entry is executable (mode ${mode.toString(8)})`)
+  if (process.platform !== 'win32') {
+    const mode = fs.statSync(BIN_PATH).mode & 0o777
+    assert.ok((mode & 0o111) !== 0, `the bin entry is executable (mode ${mode.toString(8)})`)
+  }
 
   const help = await execNode(['--help'], { ...process.env, LC_ALL: 'zh_CN.UTF-8' })
   assert.equal(help.code, 0, `--help exits 0 (stderr: ${help.stderr})`)
-  assert.match(help.stdout, /dsh-zen-remote/u)
+  assert.match(help.stdout, /dsh-remote-hub/u)
   assert.match(help.stdout, /setup/u)
 
   const version = await execNode(['--version'], process.env)

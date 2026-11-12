@@ -194,6 +194,15 @@ export interface RelayHandlerOptions {
          * cooperative declarations only, exactly as before. */
         adapters?: readonly NormalizedAdapter[];
     };
+    /** Cross-host `@` session reference candidate listing on this host. */
+    listSessionCandidates?: (input: {
+        query: string;
+        limit: number;
+        isAccessible: (sessionId: string) => boolean;
+        signal?: AbortSignal;
+    }) => Promise<unknown[]> | unknown[];
+    /** Cross-host `@` session reference surface snapshot reader on this host. */
+    readSessionSurface?: (sessionId: string) => Promise<unknown> | unknown;
 }
 /**
  * The relay route handler plus its introspection surface. A function WITH

@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const test = require('node:test')
 
-const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8')
+const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8').replace(/\r\n/g, '\n')
 const headerCss = read('src', 'client', 'styles', 'header.css.ts')
 const headerTsx = read('src', 'client', 'MobileSessionHeader.tsx')
 

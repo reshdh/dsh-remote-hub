@@ -203,10 +203,10 @@ function profileHasPlugin(profileDir: string): boolean {
       dependencies?: Record<string, unknown>
       dsh?: { profile?: { bundles?: unknown } }
     }
-    if (pkg.dependencies !== undefined && typeof pkg.dependencies === 'object' && 'dsh-zen-remote' in pkg.dependencies) return true
+    if (pkg.dependencies !== undefined && typeof pkg.dependencies === 'object' && 'dsh-remote-hub' in pkg.dependencies) return true
     const bundles = pkg.dsh?.profile?.bundles
-    if (Array.isArray(bundles) && bundles.includes('dsh-zen-remote')) return true
-    if (bundles !== null && typeof bundles === 'object' && !Array.isArray(bundles) && 'dsh-zen-remote' in bundles) return true
+    if (Array.isArray(bundles) && bundles.includes('dsh-remote-hub')) return true
+    if (bundles !== null && typeof bundles === 'object' && !Array.isArray(bundles) && 'dsh-remote-hub' in bundles) return true
   } catch { /* no package.json or unreadable — not installed */ }
   return false
 }
@@ -351,12 +351,12 @@ export async function ensurePluginInstalled(options: EnsurePluginInstalledOption
     out.write(`${t('install.running', { profile })}\n`)
     let code: number
     try {
-      code = await spawn('dsh', ['plugin', '--profile', profile, 'add', 'dsh-zen-remote'])
+      code = await spawn('dsh', ['plugin', '--profile', profile, 'add', 'dsh-remote-hub'])
     } catch {
       code = 1
     }
     if (code !== 0) {
-      const manualCommand = `dsh plugin --profile ${profile} add dsh-zen-remote`
+      const manualCommand = `dsh plugin --profile ${profile} add dsh-remote-hub`
       out.write(`${t('install.failed', { profile, code, command: manualCommand })}\n`)
       return { ok: false, code: 'install-failed', targets, preferredProfile: pickPreferredProfile(targets), installedNow, selectedBy, failedProfile: profile, manualCommand }
     }

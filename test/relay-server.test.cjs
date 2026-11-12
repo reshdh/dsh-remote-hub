@@ -195,7 +195,9 @@ test('loadServerId migrates a legacy zen-remote-server.json identity into the st
   const state = JSON.parse(fs.readFileSync(path.join(home, 'zen-remote-state.json'), 'utf8'))
   assert.equal(state.serverId, 'feedbeef', 'it now lives in the state file')
   assert.equal(fs.existsSync(path.join(home, 'zen-remote-server.json')), false, 'the legacy file is deleted after the migration')
-  assert.equal((fs.statSync(path.join(home, 'zen-remote-state.json')).mode & 0o777), 0o600, 'the state file is 0600')
+  if (process.platform !== 'win32') {
+    assert.equal((fs.statSync(path.join(home, 'zen-remote-state.json')).mode & 0o777), 0o600, 'the state file is 0600')
+  }
 
   // A second call reads the migrated id straight from the state file.
   assert.equal(loadServerId(home), 'feedbeef')

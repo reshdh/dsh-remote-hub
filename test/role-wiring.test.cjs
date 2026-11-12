@@ -1304,5 +1304,5 @@ test('resolveRole normalizes to host or client', async () => {
 
 test('cordis.patch.yml carries exactly one insert row: the main entry', () => {
   const ids = [...fs.readFileSync(PATCH_PATH, 'utf8').matchAll(/^\s*-\s+id:\s*(\S+)\s*$/gm)].map((m) => m[1])
-  assert.deepEqual(ids, ['dsh-zen-remote'])
+  assert.deepEqual(ids, ['dsh-remote-hub'])
 })

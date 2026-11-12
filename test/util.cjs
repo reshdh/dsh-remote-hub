@@ -235,9 +235,12 @@ function stopAll(target, child) {
     let n = (target ? 1 : 0) + (child ? 1 : 0)
     if (n === 0) { resolve(); return }
     const done = () => { if (--n === 0) resolve() }
-    if (target) target.close(done)
+    if (target) {
+      if (target.listening === false) done()
+      else target.close(done)
+    }
     if (child) {
-      if (child.exitCode !== null) done()
+      if (child.exitCode !== null || child.signalCode !== null) done()
       else { child.once('exit', done); child.kill('SIGTERM') }
     }
   })

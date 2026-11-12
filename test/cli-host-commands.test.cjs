@@ -273,7 +273,7 @@ test('host device pair：desktop-client——打印可直接复制的 client pai
     const pair = canned.requests.find((r) => r.path === '/_dsh/zen-remote/admin/pair')
     assert.deepEqual(pair.body, { role: 'desktop-client' })
     const text = ctx.stdout.text()
-    assert.match(text, /dsh-zen-remote client pair https:\/\/tea\.example\.com --code ABCD2345/u, 'the copy-paste client pair command')
+    assert.match(text, /dsh-remote-hub client pair https:\/\/tea\.example\.com --code ABCD2345/u, 'the copy-paste client pair command')
     assert.match(text, /设备配对/u, 'the web-wizard hint')
   } finally {
     await stopHost({ home, handle })
@@ -985,7 +985,7 @@ test('host ingress verify：LAN/Tailscale (http://) 本机自检 probe-failed �
     assert.match(text, /已直接生成配对码/u)
     assert.match(text, /配对码：LAN88888/u)
     assert.match(text, /桌面客户端配对码：DESK9999/u)
-    assert.match(text, /dsh-zen-remote client pair http:\/\/100\.64\.0\.8:3088 --code DESK9999/u)
+    assert.match(text, /dsh-remote-hub client pair http:\/\/100\.64\.0\.8:3088 --code DESK9999/u)
   } finally {
     await stopHost({ home, handle })
   }

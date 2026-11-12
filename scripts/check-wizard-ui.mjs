@@ -720,7 +720,7 @@ await test('registerGatewayWizard: mounts on plugins.bundle.config (top of bundl
   assert.equal(slotsRegistered.length, 1)
   assert.equal(slotsRegistered[0].options.name, 'plugins.bundle.config')
   assert.equal(slotsRegistered[0].options.key, WIZARD_BUNDLE_KEY)
-  assert.equal(slotsRegistered[0].options.key, 'dsh-zen-remote')
+  assert.equal(slotsRegistered[0].options.key, 'dsh-remote-hub')
   assert.equal(slotsRegistered[0].component, stubWizard)
 })
 

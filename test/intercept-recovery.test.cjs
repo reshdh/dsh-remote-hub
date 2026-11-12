@@ -194,7 +194,7 @@ test('CP4: the server-restart error line marks the client offline at once and th
   await waitFor(() => client.state === 'offline')
   assert.equal(client.lastError, 'offline')
   assert.equal(client.nextRetryAt, clock.now() + 1000, 'the reconnect ladder armed its first step')
-  await waitFor(() => frames.some((frame) => frame.workspace?.title === '主服务端 · 远端一（离线）'))
+  await waitFor(() => frames.some((frame) => frame.workspace?.title === '远端一（离线）'))
 
   // The server is back: the ladder's first due attempt reconnects, the pump
   // wakes on the online transition and reopens the remote leg.
@@ -202,7 +202,7 @@ test('CP4: the server-restart error line marks the client offline at once and th
   await waitFor(() => client.state === 'online')
   await waitFor(() => relay.state.streams.length === 2)
   relay.state.streams[1].write({ type: 'frame', frame: REMOTE_BASELINE_FRAME })
-  await waitFor(() => frames.filter((frame) => frame.type === 'upsert' && frame.workspace?.title === '主服务端 · 远端一').length >= 2)
+  await waitFor(() => frames.filter((frame) => frame.type === 'upsert' && frame.workspace?.title === '远端一').length >= 2)
   assert.equal(frames.some((frame) => frame.terminal), false, 'the consumer never saw an error')
 })
 
@@ -239,7 +239,7 @@ test('CP4: a clean stream end while still online reopens after the backoff delay
   // A stream that SERVED a frame proves the route works: the delay resets,
   // and the next end reopens after 1s again.
   relay.state.streams[2].write({ type: 'frame', frame: { type: 'upsert', workspace: { ...RW, title: '刷新' } } })
-  await waitFor(() => frames.some((frame) => frame.workspace?.title === '主服务端 · 刷新'))
+  await waitFor(() => frames.some((frame) => frame.workspace?.title === '刷新'))
   relay.state.streams[2].write({ type: 'end' })
   relay.state.streams[2].end()
   await waitFor(() => clock.pending === 1)
@@ -267,7 +267,7 @@ test('CP4: a 429 too-many-streams refusal keeps the state online and the stream 
   clock.advance(2000)
   await waitFor(() => relay.state.streams.length === 2, 4000)
   relay.state.streams[1].write({ type: 'frame', frame: { type: 'upsert', workspace: { ...RW, title: '重开' } } })
-  await waitFor(() => frames.some((frame) => frame.workspace?.title === '主服务端 · 重开'), 4000)
+  await waitFor(() => frames.some((frame) => frame.workspace?.title === '重开'), 4000)
   assert.equal(frames.some((frame) => frame.terminal), false, 'the 429 never reached the UI as an error')
 })
 

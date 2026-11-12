@@ -354,8 +354,8 @@ test('scanCandidateProfiles: installed 按 package.json 的 dependencies / dsh.p
   const { scanCandidateProfiles } = await import(BOOTSTRAP_URL)
   const home = makeHome('scan-installed')
   try {
-    writeProfilePackage(home, 'web', { dependencies: { 'dsh-zen-remote': '^2.3.0' } })
-    writeProfilePackage(home, 'alt', { dsh: { profile: { bundles: ['dsh-zen-remote', 'other'] } } })
+    writeProfilePackage(home, 'web', { dependencies: { 'dsh-remote-hub': '^1.0.0' } })
+    writeProfilePackage(home, 'alt', { dsh: { profile: { bundles: ['dsh-remote-hub', 'other'] } } })
     writeProfilePackage(home, 'stale', { dependencies: { 'other-plugin': '*' } })
     mkdirIn(home, 'profiles', 'bare')
     fs.mkdirSync(path.join(home, 'profiles', 'broken'), { recursive: true })
@@ -420,8 +420,8 @@ test('ensurePluginInstalled: 多选 [work, web] 依次代跑两次安装，首�
     })
     assert.equal(result.ok, true)
     assert.deepEqual(spawnCalls, [
-      ['dsh', ['plugin', '--profile', 'work', 'add', 'dsh-zen-remote']],
-      ['dsh', ['plugin', '--profile', 'web', 'add', 'dsh-zen-remote']],
+      ['dsh', ['plugin', '--profile', 'work', 'add', 'dsh-remote-hub']],
+      ['dsh', ['plugin', '--profile', 'web', 'add', 'dsh-remote-hub']],
     ], 'install runs in the chosen order, one dsh plugin add per profile')
     assert.equal(result.preferredProfile, 'web', 'web is the preferred run profile even when picked second')
     assert.deepEqual(result.installedNow, ['work', 'web'])
@@ -471,7 +471,7 @@ test('ensurePluginInstalled: 已有 profile 装了插件则跳过；非交互缺
   const home = makeHome('install-rest')
   try {
     // 已安装：不 spawn，preferredProfile 取 web。
-    writeProfilePackage(home, 'web', { dependencies: { 'dsh-zen-remote': '^2' } })
+    writeProfilePackage(home, 'web', { dependencies: { 'dsh-remote-hub': '^1' } })
     mkdirIn(home, 'profiles', 'other')
     const spawnCalls = []
     const done = await bootstrap.ensurePluginInstalled({
@@ -495,7 +495,7 @@ test('ensurePluginInstalled: 已有 profile 装了插件则跳过；非交互缺
         stdout: captureStdout(),
       })
       assert.equal(def.ok, true)
-      assert.deepEqual(spawns, [['dsh', ['plugin', '--profile', 'web', 'add', 'dsh-zen-remote']]])
+      assert.deepEqual(spawns, [['dsh', ['plugin', '--profile', 'web', 'add', 'dsh-remote-hub']]])
 
       // 安装失败：ok=false + 手动命令原样打印。
       const failOut = captureStdout()
@@ -508,8 +508,8 @@ test('ensurePluginInstalled: 已有 profile 装了插件则跳过；非交互缺
       assert.equal(failed.ok, false)
       assert.equal(failed.code, 'install-failed')
       assert.equal(failed.failedProfile, 'work')
-      assert.equal(failed.manualCommand, 'dsh plugin --profile work add dsh-zen-remote')
-      assert.match(failOut.text(), /dsh plugin --profile work add dsh-zen-remote/u, 'the manual command is printed verbatim')
+      assert.equal(failed.manualCommand, 'dsh plugin --profile work add dsh-remote-hub')
+      assert.match(failOut.text(), /dsh plugin --profile work add dsh-remote-hub/u, 'the manual command is printed verbatim')
 
       // 显式 --profile 即使已有安装也照跑（幂等 add）。
       const spawns2 = []
@@ -520,7 +520,7 @@ test('ensurePluginInstalled: 已有 profile 装了插件则跳过；非交互缺
         stdout: captureStdout(),
       })
       assert.equal(forced.ok, true)
-      assert.deepEqual(spawns2, [['dsh', ['plugin', '--profile', 'extra', 'add', 'dsh-zen-remote']]])
+      assert.deepEqual(spawns2, [['dsh', ['plugin', '--profile', 'extra', 'add', 'dsh-remote-hub']]])
     } finally {
       cleanup(emptyHome)
     }
@@ -599,13 +599,13 @@ test('discoverCliSockets: 存活 socket 进 live；版本不匹配进 versionMis
     assert.equal(found.permissionDenied.length, 0)
 
     // 版本不匹配：裸 http server 顶着候选路径回 cliProtocolVersion 999。
-    fake = await startFakePingServer(path.join(fakeHome, 'zen-remote-cli.sock'), {
+    fake = await startFakePingServer(path.join(fakeHome, 'remote-hub-cli.sock'), {
       ok: true, cliProtocolVersion: 999, pluginVersion: '9.9.9', pid: 1, role: 'host', serves: true, connects: false, serverName: 'fake',
     })
     const mismatched = await ipcClient.discoverCliSockets({ dshHome: fakeHome })
     assert.equal(mismatched.live.length, 0)
     assert.equal(mismatched.versionMismatch.length, 1)
-    assert.equal(mismatched.versionMismatch[0].socketPath, path.join(fakeHome, 'zen-remote-cli.sock'))
+    assert.equal(mismatched.versionMismatch[0].socketPath, path.join(fakeHome, 'remote-hub-cli.sock'))
     assert.equal(mismatched.versionMismatch[0].cliProtocolVersion, 999)
 
     // EACCES：socket 文件 chmod 000 后连接被拒。

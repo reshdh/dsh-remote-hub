@@ -75,8 +75,10 @@ const modules = order
   })
   .join('\n')
 
+const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+
 const wrapped = [
-  'window.__ModuleLoader__.load({ id: "dsh-zen-remote", factory: (require) => {',
+  `window.__ModuleLoader__.load({ id: ${JSON.stringify(pkg.name)}, factory: (require) => {`,
   'var __modules = {};',
   modules,
   'var __cache = {};',

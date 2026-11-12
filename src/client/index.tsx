@@ -41,6 +41,7 @@ import { registerRemoteStatusUi } from './remote-status-register.ts'
 import { mountCurrentSessionReporter } from './current-session-report.ts'
 import { mountRemoteDropGuard } from './effects/remote-drop.ts'
 import { mountRemoteGroupExpansionKeeper } from './remote-group-expansion.ts'
+import { mountHostWorkspaceSwitcher } from './host-workspace-switcher.ts'
 import { installRemoteApiFetch } from './remote-fetch.ts'
 import { installRemoteSessionGuard } from './effects/remote-session.ts'
 import { installModelGroupSide } from './effects/model-group-side.ts'
@@ -119,7 +120,7 @@ export function apply(ctx: ClientContext): void {
 
   // GW-10 网关配置引导「让手机连上来」：同样在桌面门之前注册——桌面端 App
   // 正是主服务端，wizard 恰好是它最有用的入口。部件自身三重门控：subject
-  // 过滤（kind === 'row' && pkg.name === 'dsh-zen-remote'）、保存角色检查
+  // 过滤（kind === 'row' && pkg.name === 'dsh-remote-hub'）、保存角色检查
   // （client 角色不渲染）、viaGateway 时全部操作禁用。样式全部作用在组件
   // 自身的 data 属性下，≥1024px 的其他页面逐像素不受影响。
   registerGatewayWizard(ctx, GatewayWizard)
@@ -162,6 +163,7 @@ export function apply(ctx: ClientContext): void {
   // 挂载点与角色判断（同一个 client-config 探测）、同样的 1 秒节拍（自己的
   // 定时器），逻辑在 remote-group-expansion.ts 自己的文件里。
   mountRemoteGroupExpansionKeeper(ctx)
+  mountHostWorkspaceSwitcher(ctx)
   // T41b 的两个远程会话部件：fetch 改写（改动 / diff 面板的两条 /api GET）与
   // 远程会话标记（data-zr-remote-session + 隐藏「在服务端机器上打开」类入口
   // 的样式）。同样必须在桌面门之前注册——桌面窗口也可以是配对好的子客户端，
@@ -176,6 +178,447 @@ export function apply(ctx: ClientContext): void {
   // client-data/model-group-side.ts），CSS 按标隐藏。同样必须在桌面门之前挂载：
   // 桌面端子客户端的模型选单一样要分侧，桌面无手机外壳不影响它。
   installModelGroupSide(ctx)
+
+  ctx.effect(() => {
+    let lastRefreshAt = 0
+    const timers = new Set<number>()
+    const refreshCatalog = (force = false): void => {
+      const now = Date.now()
+      if (!force && now - lastRefreshAt < 3000) return
+      const md = ctx.get('modelDirectories') as { catalog?: { refresh?: () => void } } | undefined
+      if (md?.catalog && typeof md.catalog.refresh === 'function') {
+        lastRefreshAt = now
+        try {
+          md.catalog.refresh()
+        } catch {
+          // ignore transient refresh errors
+        }
+      }
+    }
+    const schedulePostSaveRefresh = (): void => {
+      for (const delay of [450, 1400]) {
+        const timer = window.setTimeout(() => {
+          timers.delete(timer)
+          refreshCatalog(true)
+        }, delay)
+        timers.add(timer)
+      }
+    }
+    const initTimer = window.setTimeout(() => {
+      timers.delete(initTimer)
+      refreshCatalog(true)
+    }, 120)
+    timers.add(initTimer)
+    const disposers: Array<() => void> = []
+    const remote = ctx.get('remote') as { $on?: (event: string, cb: () => void) => () => void } | undefined
+    if (remote && typeof remote.$on === 'function') {
+      disposers.push(remote.$on('settings/document-updated', schedulePostSaveRefresh))
+      disposers.push(remote.$on('credentials/reference-updated', schedulePostSaveRefresh))
+      disposers.push(remote.$on('credentials/record-updated', schedulePostSaveRefresh))
+    }
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target instanceof Element ? event.target : null
+      if (!target) return
+      const btn = target.closest('button[aria-haspopup="menu"], button[class*="_trigger"]')
+      if (btn) refreshCatalog(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      for (const dispose of disposers) {
+        try {
+          dispose()
+        } catch {
+          // ignore
+        }
+      }
+      for (const timer of timers) window.clearTimeout(timer)
+      timers.clear()
+    }
+  }, 'dsh-remote-hub: remote model catalog live refresh')
+
+  ctx.inject(['connection'], (connCtx) => {
+    interface RpcLike {
+      call: (route: string, endpoint: string, payload: unknown, signal?: AbortSignal) => Promise<unknown>
+      [key: string]: unknown
+    }
+    interface RawConnectionLike {
+      rpc?: RpcLike
+      __zrOrigRpc?: RpcLike
+      [key: symbol]: unknown
+    }
+    const symOrig = Symbol.for('cordis.original')
+    const connProxy = connCtx.get('connection') as RawConnectionLike | undefined
+    const rawConn =
+      connProxy && typeof connProxy === 'object'
+        ? ((connProxy[symOrig] as RawConnectionLike | undefined) ?? connProxy)
+        : undefined
+    if (!rawConn || !rawConn.rpc || typeof rawConn.rpc.call !== 'function') return
+    if (!rawConn.__zrOrigRpc) {
+      rawConn.__zrOrigRpc = rawConn.rpc
+    }
+    const origRpc = rawConn.__zrOrigRpc
+    const origCall = origRpc.call.bind(origRpc)
+
+    const isObj = (v: unknown): v is Record<string, unknown> =>
+      typeof v === 'object' && v !== null && !Array.isArray(v)
+    const CANONICAL_SPLIT_RE = /(@\[(?:\\.|[^\\\]])*\]\(dsh-session:[^\s)]*\)|dsh-session:[A-Za-z0-9_-]+)/gu
+    const PLAIN_UUID_HEAD_RE =
+      /^(?:【([^】]{1,32})】|\[([^\]]{1,32})\])?((?:zr~[A-Za-z0-9_.-]+~)?session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=$|[\s,，.。!！?？;；:：)）\]】>》])/iu
+    const BOUNDARY_AFTER_RE = /^($|[\s,，.。!！?？;；:：)）\]】>》])/u
+
+    const encodeRefUri = (sessionId: string): string => {
+      const bytes = new TextEncoder().encode(JSON.stringify(sessionId))
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i]
+        if (b !== undefined) binary += String.fromCharCode(b)
+      }
+      const b64url = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+      return `dsh-session:${b64url}`
+    }
+    const escapeRefLabel = (label: string): string => String(label).replace(/[\\\]]/gu, (m) => `\\${m}`)
+    const formatRefMention = (sessionId: string, label: unknown): string => {
+      const eff = typeof label === 'string' && label !== '' ? label : sessionId
+      return `@[${escapeRefLabel(eff)}](${encodeRefUri(sessionId)})`
+    }
+    const prefixTag = (host: unknown, title: unknown): string => {
+      const h = typeof host === 'string' && host.trim() !== '' ? host.trim() : '远端'
+      const t = typeof title === 'string' ? title : ''
+      if (t.startsWith(`【${h}】`) || t.startsWith(`[${h}]`)) return t
+      return `【${h}】${t}`
+    }
+    const isUntitledUuidLabel = (label: unknown): boolean =>
+      typeof label === 'string' &&
+      /^(?:【[^】]+】|\[[^\]]+\])?session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(
+        label.trim(),
+      )
+    const isExplicitUuidQuery = (q: unknown): boolean => {
+      if (typeof q !== 'string') return false
+      const s = q.trim()
+      return (
+        /^(?:【[^】]+】|\[[^\]]+\])?(?:zr~[A-Za-z0-9_.-]+~)?session-[0-9a-f-]{6,}/iu.test(s) ||
+        /^[0-9a-f]{8}-[0-9a-f]{4}-/iu.test(s)
+      )
+    }
+    const mayContainPlainMention = (text: unknown): boolean => {
+      if (typeof text !== 'string' || text === '') return false
+      const parts = text.split(CANONICAL_SPLIT_RE)
+      for (let i = 0; i < parts.length; i += 2) {
+        const seg = parts[i]
+        if (!seg) continue
+        if (/session-[0-9a-f]{8}-[0-9a-f]{4}-/iu.test(seg)) return true
+        if (/(?:@|(?:^|[\s(（,，;；:：]))(?:【[^】]{1,32}】|\[[^\]]{1,32}\])\S/u.test(seg)) return true
+        if (/(?:^|[\s(（])@[^\s@]/u.test(seg)) return true
+      }
+      return false
+    }
+    const extractPlainUuids = (text: unknown): string[] => {
+      if (typeof text !== 'string' || text === '') return []
+      const set = new Set<string>()
+      const parts = text.split(CANONICAL_SPLIT_RE)
+      for (let i = 0; i < parts.length; i += 2) {
+        const seg = parts[i]
+        if (!seg) continue
+        for (const m of seg.matchAll(
+          /((?:zr~[A-Za-z0-9_.-]+~)?session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/giu,
+        )) {
+          if (m[1]) set.add(m[1])
+        }
+      }
+      return [...set]
+    }
+
+    interface CandidateItemLike {
+      sessionId: string
+      displayTitle?: string
+      label?: string
+      mention?: string
+      [key: string]: unknown
+    }
+
+    const upgradePlainMentions = (
+      text: string,
+      candidates: readonly CandidateItemLike[],
+      resolveUuid: (rawUuid: string, hostTag?: string) => { sessionId: string; label?: string } | undefined,
+    ): string => {
+      if (typeof text !== 'string' || text === '') return text
+      const entries: Array<{ title: string; titleLower: string; hasHostPrefix: boolean; mention: string }> = []
+      const seen = new Set<string>()
+      for (const cand of candidates) {
+        if (!isObj(cand) || typeof cand.sessionId !== 'string' || cand.sessionId === '') continue
+        const mention =
+          typeof cand.mention === 'string' && cand.mention.includes('dsh-session:')
+            ? cand.mention
+            : formatRefMention(cand.sessionId, cand.displayTitle || cand.label || cand.sessionId)
+        for (const rawT of [cand.displayTitle, cand.label]) {
+          if (typeof rawT !== 'string') continue
+          const t = rawT.trim()
+          if (t.length < 2) continue
+          const hasHostPrefix = /^(?:【[^】]{1,32}】|\[[^\]]{1,32}\])\S/u.test(t)
+          if (!hasHostPrefix && /^[A-Za-z0-9_./\\-]+\.[A-Za-z0-9]{1,8}$/.test(t) && !/^session-/i.test(t)) continue
+          const key = t.toLocaleLowerCase()
+          if (seen.has(key)) continue
+          seen.add(key)
+          entries.push({ title: t, titleLower: key, hasHostPrefix, mention })
+        }
+      }
+      entries.sort((a, b) => b.title.length - a.title.length)
+
+      const parts = text.split(CANONICAL_SPLIT_RE)
+      let anyChanged = false
+      for (let idx = 0; idx < parts.length; idx += 2) {
+        const seg = parts[idx]
+        if (!seg) continue
+        let out = ''
+        let pos = 0
+        let segChanged = false
+        while (pos < seg.length) {
+          const ch = seg[pos] ?? ''
+          const prev = pos > 0 ? (seg[pos - 1] ?? '') : ''
+          const atTrigger = ch === '@' && (pos === 0 || !/[A-Za-z0-9_]/.test(prev))
+          const hostBracketNoAt =
+            !atTrigger && (ch === '【' || ch === '[') && (pos === 0 || /[\s(（,，;；:：]/.test(prev))
+          if (!atTrigger && !hostBracketNoAt) {
+            out += ch
+            pos += 1
+            continue
+          }
+          const rest = seg.slice(pos + (atTrigger ? 1 : 0))
+          let replaced = false
+
+          const um = PLAIN_UUID_HEAD_RE.exec(rest)
+          if (um !== null && (atTrigger || um[1] !== undefined || um[2] !== undefined)) {
+            const hostTag = um[1] ?? um[2]
+            const rawUuid = um[3] ?? ''
+            const resolved = rawUuid !== '' ? resolveUuid(rawUuid, hostTag) : undefined
+            if (resolved && typeof resolved.sessionId === 'string' && resolved.sessionId !== '') {
+              const label =
+                typeof resolved.label === 'string' && resolved.label !== ''
+                  ? resolved.label
+                  : hostTag
+                    ? prefixTag(hostTag, rawUuid)
+                    : rawUuid
+              out += formatRefMention(resolved.sessionId, label)
+              pos += (atTrigger ? 1 : 0) + um[0].length
+              segChanged = true
+              replaced = true
+            }
+          }
+
+          if (!replaced && entries.length > 0) {
+            const restLower = rest.toLocaleLowerCase()
+            for (const entry of entries) {
+              if (hostBracketNoAt && !entry.hasHostPrefix) continue
+              if (!restLower.startsWith(entry.titleLower)) continue
+              const after = rest.slice(entry.title.length)
+              if (!BOUNDARY_AFTER_RE.test(after)) continue
+              out += entry.mention
+              pos += (atTrigger ? 1 : 0) + entry.title.length
+              segChanged = true
+              replaced = true
+              break
+            }
+          }
+
+          if (!replaced) {
+            out += ch
+            pos += 1
+          }
+        }
+        if (segChanged) {
+          parts[idx] = out
+          anyChanged = true
+        }
+      }
+      return anyChanged ? parts.join('') : text
+    }
+
+    const visitBlocks = (content: unknown, fn: (t: string) => string): void => {
+      if (!Array.isArray(content)) return
+      for (const block of content) {
+        if (isObj(block) && block.type === 'text' && typeof block.text === 'string') {
+          block.text = fn(block.text)
+        }
+      }
+    }
+    const mapDeepStrings = (val: unknown, fn: (t: string) => string): unknown => {
+      if (typeof val === 'string') return fn(val)
+      if (Array.isArray(val)) return val.map((item) => mapDeepStrings(item, fn))
+      if (isObj(val)) {
+        const next: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(val)) next[k] = mapDeepStrings(v, fn)
+        return next
+      }
+      return val
+    }
+    const applyInjectableTexts = (endpoint: string, args: unknown, fn: (t: string) => string): unknown => {
+      if (!isObj(args)) return args
+      const req = isObj(args.request) ? args.request : undefined
+      if (endpoint === 'session/prompt' || endpoint === 'subagents/prompt') {
+        if (req) visitBlocks(req.content, fn)
+        return args
+      }
+      if (endpoint === 'session/updateQueue') {
+        if (req && isObj(req.action) && req.action.kind === 'edit') visitBlocks(req.action.content, fn)
+        return args
+      }
+      if (endpoint === 'commands/execute') {
+        return mapDeepStrings(args, fn)
+      }
+      return args
+    }
+    const collectInjectableTexts = (endpoint: string, args: unknown): string[] => {
+      const out: string[] = []
+      applyInjectableTexts(endpoint, args, (t) => {
+        out.push(t)
+        return t
+      })
+      return out
+    }
+
+    const wrappedCall = async (
+      route: string,
+      endpoint: string,
+      payload: unknown,
+      signal?: AbortSignal,
+    ): Promise<unknown> => {
+      if (endpoint === 'sessionReferenceResolver/candidates') {
+        const res = await origCall(route, endpoint, payload, signal)
+        if (!isObj(res) || res.ok !== true || !Array.isArray(res.value)) return res
+        const rawQ =
+          isObj(payload) && isObj(payload.args) && typeof payload.args.query === 'string' ? payload.args.query : ''
+        if (isExplicitUuidQuery(rawQ)) return res
+        const byId = (ctx.get('sessions')?.list?.getSnapshot()?.byId ?? {}) as Readonly<
+          Record<string, { blank?: boolean }>
+        >
+        const filtered = res.value.filter((row: unknown) => {
+          if (!isObj(row) || typeof row.sessionId !== 'string') return false
+          if (byId[row.sessionId]?.blank === true) return false
+          if (isUntitledUuidLabel(row.displayTitle ?? row.label ?? '')) return false
+          return true
+        })
+        return { ...res, value: filtered }
+      }
+
+      if (
+        endpoint === 'session/prompt' ||
+        endpoint === 'subagents/prompt' ||
+        endpoint === 'session/updateQueue' ||
+        endpoint === 'commands/execute'
+      ) {
+        const args = isObj(payload) ? payload.args : undefined
+        const texts = collectInjectableTexts(endpoint, args)
+        if (texts.some((t) => mayContainPlainMention(t))) {
+          try {
+            const byId = (ctx.get('sessions')?.list?.getSnapshot()?.byId ?? {}) as Readonly<Record<string, unknown>>
+            const req = isObj(args) && isObj(args.request) ? args.request : undefined
+            const contextSessionId =
+              (typeof req?.sessionId === 'string' && req.sessionId !== '' ? req.sessionId : undefined) ??
+              (typeof req?.parentSessionId === 'string' && req.parentSessionId !== ''
+                ? req.parentSessionId
+                : undefined) ??
+              (isObj(args) && typeof args.agentId === 'string' && args.agentId !== '' ? args.agentId : undefined) ??
+              (isObj(args) && typeof args.sessionId === 'string' && args.sessionId !== '' ? args.sessionId : undefined) ??
+              Object.keys(byId)[0]
+
+            const candidates: CandidateItemLike[] = []
+            if (typeof contextSessionId === 'string' && contextSessionId !== '') {
+              const lookupQueries = ['', ...extractPlainUuids(texts.join('\n'))]
+              const settled = await Promise.all(
+                lookupQueries.map((q) =>
+                  origCall(
+                    '/api',
+                    'sessionReferenceResolver/candidates',
+                    { args: { agentId: contextSessionId, query: q } },
+                    signal,
+                  ).catch(() => null),
+                ),
+              )
+              const seenIds = new Set<string>()
+              for (const item of settled) {
+                if (!isObj(item) || item.ok !== true || !Array.isArray(item.value)) continue
+                for (const row of item.value) {
+                  if (!isObj(row) || typeof row.sessionId !== 'string' || seenIds.has(row.sessionId)) continue
+                  seenIds.add(row.sessionId)
+                  candidates.push(row as CandidateItemLike)
+                }
+              }
+            }
+
+            const inferRemoteServerId = (): string | undefined => {
+              if (typeof contextSessionId === 'string' && contextSessionId.startsWith('zr~')) {
+                const segs = contextSessionId.split('~')
+                if (segs.length >= 3 && segs[1]) return segs[1]
+              }
+              for (const k of Object.keys(byId)) {
+                if (k.startsWith('zr~')) {
+                  const segs = k.split('~')
+                  if (segs.length >= 3 && segs[1]) return segs[1]
+                }
+              }
+              return undefined
+            }
+
+            const resolveUuid = (rawUuid: string, hostTag?: string): { sessionId: string; label: string } => {
+              const tagLower = typeof hostTag === 'string' ? hostTag.trim().toLocaleLowerCase() : ''
+              if (rawUuid.startsWith('zr~')) {
+                return { sessionId: rawUuid, label: hostTag ? prefixTag(hostTag, rawUuid) : rawUuid }
+              }
+              if (tagLower === '本机' || tagLower === '本地' || tagLower === 'local') {
+                const hit = candidates.find((c) => c.sessionId === rawUuid)
+                return { sessionId: rawUuid, label: hit?.displayTitle ?? prefixTag('本机', rawUuid) }
+              }
+              if (tagLower !== '') {
+                const srvId = inferRemoteServerId()
+                if (srvId) {
+                  const virtId = `zr~${srvId}~${rawUuid}`
+                  const hit = candidates.find((c) => c.sessionId === virtId)
+                  return { sessionId: virtId, label: hit?.displayTitle ?? prefixTag(hostTag, rawUuid) }
+                }
+              }
+              const candHit = candidates.find((c) => c.sessionId === rawUuid || c.sessionId.endsWith(`~${rawUuid}`))
+              if (candHit) {
+                return { sessionId: candHit.sessionId, label: candHit.displayTitle ?? candHit.label ?? rawUuid }
+              }
+              if (byId[rawUuid]) {
+                return { sessionId: rawUuid, label: rawUuid }
+              }
+              const srvId = inferRemoteServerId()
+              if (srvId && byId[`zr~${srvId}~${rawUuid}`]) {
+                return { sessionId: `zr~${srvId}~${rawUuid}`, label: rawUuid }
+              }
+              if (typeof contextSessionId === 'string' && contextSessionId.startsWith('zr~') && srvId) {
+                return { sessionId: `zr~${srvId}~${rawUuid}`, label: rawUuid }
+              }
+              return { sessionId: rawUuid, label: rawUuid }
+            }
+
+            const clonedPayload = structuredClone(payload) as Record<string, unknown>
+            clonedPayload.args = applyInjectableTexts(endpoint, clonedPayload.args, (text) =>
+              upgradePlainMentions(text, candidates, resolveUuid),
+            )
+            return origCall(route, endpoint, clonedPayload, signal)
+          } catch {
+            // Fall back to original payload on any unexpected error
+          }
+        }
+      }
+
+      return origCall(route, endpoint, payload, signal)
+    }
+
+    const wrappedRpc: RpcLike = Object.assign({}, origRpc, { call: wrappedCall })
+    rawConn.rpc = wrappedRpc
+    connCtx.effect(
+      () => () => {
+        if (rawConn.rpc === wrappedRpc) {
+          rawConn.rpc = origRpc
+        }
+      },
+      'dsh-remote-hub: cross-host session reference enhancer',
+    )
+  })
 
   // 2.2.6 远程会话产物下载：子客户端最常见的诉求是「把服务端工作区里刚产出的
   // 文件拿到本机」。DSH 官方的产物卡片只有预览，打开类动作（present.open /

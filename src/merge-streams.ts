@@ -169,13 +169,13 @@ const ANNOTATION_SUFFIX_BY_LANG: Record<MergerLang, Record<Exclude<MergerAnnotat
     offline: '（离线）',
     revoked: '（令牌已吊销）',
     unpaired: '（已解除配对）',
-    mismatch: '（版本有差异）',
+    mismatch: '',
   },
   en: {
     offline: ' (offline)',
     revoked: ' (token revoked)',
     unpaired: ' (unpaired)',
-    mismatch: ' (version mismatch)',
+    mismatch: '',
   },
 }
 
@@ -220,7 +220,7 @@ function virtualizeWorkspace(
   if (typeof record.workspaceId === 'string') out.workspaceId = virtualize(record.workspaceId)
   if (typeof record.title === 'string') {
     const suffix = annotation === 'none' ? '' : ANNOTATION_SUFFIX_BY_LANG[lang][annotation]
-    out.title = `${identity.serverName} · ${record.title}${suffix}`
+    out.title = `${record.title}${suffix}`
   }
   if (Array.isArray(record.sessionIds)) {
     out.sessionIds = record.sessionIds.map((id) => (typeof id === 'string' ? virtualize(id) : id))
@@ -566,32 +566,18 @@ export function createWorkspaceMerger(options: WorkspaceMergerOptions): Workspac
     for (const [id, home] of sessionHome) {
       if (home === workspaceId && !live.includes(id)) out.sessionIds.push(virtualize(id))
     }
+    if (out.sessionIds.length === 0) {
+      out.sessionIds.push(virtualize(`__empty__:${workspaceId}`))
+    }
     return out
   }
-  /** T56: the forwarded record when the UI may see this workspace, else
-   * undefined — a never-shown workspace is forwarded only once its forwarded
-   * sessionIds first carries VISIBLE content, and forwarding it marks it
-   * shown for good. Only call on paths that actually emit (after the local
-   * baseline has passed): a mark here is a claim that the UI now holds the
-   * group. Visible means NOT hidden (T65): the host draws a group heading
-   * even when every member is archived-invisible under the default filter,
-   * so a group whose members are all hidden must not be first-shown —
-   * the forwarded copy itself still carries the hidden ids. */
+  /** Forward remote workspaces immediately (including empty workspaces via the
+   * `__empty__:<workspaceId>` placeholder) so multi-host workspace switching
+   * always surfaces remote directories in the sidebar. */
   function forwardVisible(record: Record<string, unknown>): Record<string, unknown> | undefined {
     const id = typeof record.workspaceId === 'string' ? record.workspaceId : undefined
-    if (id !== undefined && shown.has(id)) return forwardWorkspace(record)
-    const out = forwardWorkspace(record)
-    const ids = Array.isArray(out.sessionIds) ? out.sessionIds : []
-    let visible = false
-    for (const virtualId of ids) {
-      const parts = fromVirtual(virtualId)
-      if (parts !== undefined && parts.serverId === identity.serverId && hiddenSessions.has(parts.id)) continue
-      visible = true
-      break
-    }
-    if (!visible) return undefined
     if (id !== undefined) shown.add(id)
-    return out
+    return forwardWorkspace(record)
   }
   const virtualWorkspaces = (): Record<string, unknown>[] => {
     const out: Record<string, unknown>[] = []

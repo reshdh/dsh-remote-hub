@@ -225,6 +225,16 @@ export const CLIENT_METHOD_FIELDS: Readonly<Record<string, readonly SessionField
   // two reads above it owns no field; the merge route folds the relay's
   // answer in as virtual provider groups (merge-streams.ts).
   'session/modelCatalog': [],
+  'settings/describe': [],
+  'settings/mutate': [],
+  'settings/update': [],
+  'settings/replace': [],
+  'credentials/describe': [],
+  'credentials/set': [],
+  'credentials/unset': [],
+  'llm/listProviders': [],
+  'llm/listConfigurableProviders': [],
+  'llm/discoverModels': [],
   // job/*
   'job/list': ['request.sessionId'],
   'job/follow': ['request.sessionId'],
@@ -241,6 +251,8 @@ export const CLIENT_METHOD_FIELDS: Readonly<Record<string, readonly SessionField
   'workspace/unpinSession': ['request.sessionId'],
   'workspace/archiveSession': ['request.sessionId'],
   'workspace/unarchiveSession': ['request.sessionId'],
+  'workspace/rename': ['request.workspaceId'],
+  'workspace/delete': ['request.workspaceId'],
   // workspace — the global follow stream, merged like the two session/* reads
   'workspace/follow': [],
   // The forwarded-event subscription (T32): the client reaches it through
@@ -312,6 +324,11 @@ export const REMOTE_READ_METHODS: ReadonlySet<string> = new Set([
   // T52: the model catalog read (the merge route answers it locally when the
   // relay is not serving, so classification only matters for the record).
   'session/modelCatalog',
+  'settings/describe',
+  'credentials/describe',
+  'llm/listProviders',
+  'llm/listConfigurableProviders',
+  'llm/discoverModels',
   'session/page',
   'session/projections',
   'session/attachment',
@@ -688,6 +705,12 @@ export interface SessionInventorySlot {
   dispose(): void
 }
 
+export interface SessionRefBridgeHooks {
+  listLocalCandidates?: (query: string, signal?: AbortSignal) => Promise<unknown[]> | unknown[]
+  readLocalSurface?: (sessionId: string, signal?: AbortSignal) => Promise<unknown> | unknown
+  readRemoteSurface?: (serverId: string, sessionId: string, signal?: AbortSignal) => Promise<unknown> | unknown
+}
+
 export interface InstallInterceptOptions {
   /** The RAW gateway instance (`ctx.typertGateway[symbols.original]`), not
    * the cordis proxy — own properties on the proxy are ignored by everyone. */
@@ -733,6 +756,8 @@ export interface InstallInterceptOptions {
   /** Language for error messages and sidebar group suffixes (`'zh'` default,
    * `'en'` English). Accepts a getter for live resolution. */
   lang?: InterceptLang | (() => InterceptLang) | undefined
+  /** Optional cross-host `@` session reference candidate & surface staging hooks. */
+  sessionRefBridge?: SessionRefBridgeHooks
 }
 
 export interface InterceptHandle {
@@ -1051,10 +1076,26 @@ function mapStrings(value: unknown, map: (id: string) => string): unknown {
 // one place.
 import {
   SESSION_REFERENCE_URI,
+  collectReferenceTexts,
   decodeSessionReferenceUri,
   encodeSessionReferenceUri,
   mapReferenceTexts,
 } from './session-reference.js'
+import {
+  type CandidateRow,
+  compactSurfaceSnapshot,
+  decorateCrossHostCandidate,
+  extractPlainMentionUuids,
+  isExplicitSessionUuidQuery,
+  isStagedRefId,
+  isUntitledSessionUuidLabel,
+  makeStagedRefId,
+  matchesCandidateQuery,
+  mayContainPlainSessionMention,
+  prefixHostTag,
+  stripHostQueryTokens,
+  upgradePlainTextSessionMentions,
+} from './session-ref-bridge.js'
 
 /**
  * Swap the canonical URI inside one `@[label](dsh-session:…)` mention for
@@ -1124,6 +1165,98 @@ function restoreSessionReferences(
     return pieces.join('')
   })
   return { args: mapped, ok }
+}
+
+async function prepareOutgoingSessionReferences(
+  args: unknown,
+  namespace: string,
+  method: string,
+  serverId: string,
+  client: RelayClient | undefined,
+  refBridge: SessionRefBridgeHooks | undefined,
+  signal: AbortSignal | undefined,
+): Promise<{ args: unknown; ok: boolean; code?: string; message?: string }> {
+  if (refBridge === undefined) {
+    return restoreSessionReferences(args, namespace, method, serverId)
+  }
+  const uniqueIds = new Set<string>()
+  for (const text of collectReferenceTexts(namespace, method, args)) {
+    for (const match of text.matchAll(SESSION_REFERENCE_URI)) {
+      const uri = match[1] ?? match[2]
+      const id = uri === undefined ? undefined : decodeSessionReferenceUri(uri)
+      if (id !== undefined) uniqueIds.add(id)
+    }
+  }
+  if (uniqueIds.size === 0) {
+    return { args, ok: true }
+  }
+  const targetMap = new Map<string, string>()
+  for (const id of uniqueIds) {
+    if (isStagedRefId(id)) {
+      return { args, ok: false }
+    }
+    const parts = fromVirtual(id)
+    if (parts !== undefined && parts.serverId === serverId) {
+      targetMap.set(id, parts.id)
+      continue
+    }
+    if (typeof client?.sessionRefBridge !== 'function') {
+      return { args, ok: false }
+    }
+    try {
+      if (parts === undefined) {
+        if (typeof refBridge.readLocalSurface !== 'function') return { args, ok: false }
+        const localSnap = await refBridge.readLocalSurface(id, signal)
+        const stagedKey = makeStagedRefId('local', id)
+        const compacted = compactSurfaceSnapshot(localSnap, stagedKey)
+        await client.sessionRefBridge({ action: 'stage-surface', key: stagedKey, snapshot: compacted }, signal)
+        targetMap.set(id, stagedKey)
+      } else {
+        if (typeof refBridge.readRemoteSurface !== 'function') return { args, ok: false }
+        const otherSnap = await refBridge.readRemoteSurface(parts.serverId, parts.id, signal)
+        const stagedKey = makeStagedRefId(parts.serverId, parts.id)
+        const compacted = compactSurfaceSnapshot(otherSnap, stagedKey)
+        await client.sessionRefBridge({ action: 'stage-surface', key: stagedKey, snapshot: compacted }, signal)
+        targetMap.set(id, stagedKey)
+      }
+    } catch (err) {
+      return {
+        args,
+        ok: false,
+        code: 'session-reference/read-failed',
+        message: `跨环境读取被引用会话失败：${err instanceof Error ? err.message : String(err)}`,
+      }
+    }
+  }
+  const mapped = mapReferenceTexts(namespace, method, args, (text) => {
+    const pieces: string[] = []
+    let last = 0
+    let changed = false
+    for (const match of text.matchAll(SESSION_REFERENCE_URI)) {
+      const uri = match[1] ?? match[2]
+      const start = match.index ?? 0
+      pieces.push(text.slice(last, start))
+      const id = uri === undefined ? undefined : decodeSessionReferenceUri(uri)
+      const targetId = id === undefined ? undefined : targetMap.get(id)
+      if (uri === undefined || targetId === undefined) {
+        pieces.push(match[0])
+      } else if (targetId === id) {
+        pieces.push(match[0])
+      } else {
+        changed = true
+        const rewritten =
+          uri === match[0]
+            ? encodeSessionReferenceUri(targetId)
+            : `${match[0].slice(0, match[0].length - uri.length - 1)}${encodeSessionReferenceUri(targetId)})`
+        pieces.push(rewritten)
+      }
+      last = start + match[0].length
+    }
+    if (!changed) return text
+    pieces.push(text.slice(last))
+    return pieces.join('')
+  })
+  return { args: mapped, ok: true }
 }
 
 /** Rewrite one stream frame's session ids to virtual form. */
@@ -1225,6 +1358,13 @@ export function rewriteResult(endpoint: string, value: unknown, serverId: string
     if (!isPlainObject(value)) return value
     return { ...value, archivedSessionIds: mapStrings(value.archivedSessionIds, virtualize) }
   }
+  if (endpoint === 'workspace/rename') {
+    if (!isPlainObject(value) || !isPlainObject(value.workspace)) return value
+    const ws: Record<string, unknown> = { ...value.workspace }
+    if (typeof ws.workspaceId === 'string') ws.workspaceId = virtualize(ws.workspaceId)
+    if (Array.isArray(ws.sessionIds)) ws.sessionIds = mapStrings(ws.sessionIds, virtualize)
+    return { ...value, workspace: ws }
+  }
   if (endpoint === 'session/projections') {
     // T52: the control-key read answers `{asOfSeq, values}` (or null) —
     // RT lib/typert.remote-client.js:569-594; the modelSelection value's
@@ -1306,6 +1446,9 @@ export function rewriteRemoteEventFrame(frame: unknown, serverId: string): unkno
   if (!isPlainObject(frame)) return null
   if (frame.type === 'ready') return null
   if (frame.type === 'emit') {
+    if (frame.event === 'llm/adapters-updated' && Array.isArray(frame.args) && frame.args.length === 0) {
+      return catalogRefreshFrame()
+    }
     if (!isForwardableStatusEmit(frame)) return null
     return { type: 'emit', event: frame.event, args: [virtualize(frame.args[0]), frame.args[1]] }
   }
@@ -4207,12 +4350,46 @@ export function installIntercept(options: InstallInterceptOptions): InterceptHan
       // ids inside those addresses; a reference to a LOCAL session (or any
       // other server's) refuses the whole call — the server does not have
       // that session.
-      const references = restoreSessionReferences(clone, namespace, method, serverId)
+      if (endpoint === 'sessionReferenceResolver/candidates' && options.sessionRefBridge !== undefined && isPlainObject(clone)) {
+        const targetDisplayName =
+          pool !== undefined
+            ? pool.getByServerId(serverId)?.displayName
+            : relayIdentityOf(singleRelay)?.serverName
+        const remoteStrip = stripHostQueryTokens(
+          typeof clone.query === 'string' ? clone.query : '',
+          [targetDisplayName ?? '', '家里云', '远端', 'remote'],
+        )
+        if (remoteStrip.matchedHostAlias) {
+          clone.query = remoteStrip.strippedQuery
+        }
+      }
+      if (options.sessionRefBridge !== undefined) {
+        clone = await upgradeOutgoingPlainMentions(clone, namespace, method, serverId, signal)
+      }
+      const references = await prepareOutgoingSessionReferences(
+        clone,
+        namespace,
+        method,
+        serverId,
+        client,
+        options.sessionRefBridge,
+        signal,
+      )
       clone = references.args
       if (!references.ok) {
-        return failEnvelope(endpoint, 'remote-unsupported', copy().referenceNotOnServer)
+        return failEnvelope(
+          endpoint,
+          references.code ?? 'remote-unsupported',
+          references.message ?? copy().referenceNotOnServer,
+        )
       }
-      const value = await client.invoke(namespace, method, clone, signal)
+      const [value, crossCandidates] =
+        endpoint === 'sessionReferenceResolver/candidates' && options.sessionRefBridge !== undefined
+          ? await Promise.all([
+              client.invoke(namespace, method, clone, signal),
+              collectCrossCandidatesForRemoteSession(args, serverId, signal),
+            ])
+          : [await client.invoke(namespace, method, clone, signal), undefined]
       // The session answered: any closed-session entry for it is stale
       // (re-shared and served again) — the banner may go.
       clearClosed(virtuals)
@@ -4235,7 +4412,21 @@ export function installIntercept(options: InstallInterceptOptions): InterceptHan
           ...(extracted.attachments.length > 0 ? { attachments: extracted.attachments } : {}),
         }
       }
-      return { ok: true, value: rewriteResult(endpoint, restored, serverId) }
+      const rewrittenValue = rewriteResult(endpoint, restored, serverId)
+      if (endpoint === 'sessionReferenceResolver/candidates' && Array.isArray(rewrittenValue)) {
+        const rawQ = isPlainObject(args) && typeof args.query === 'string' ? args.query : ''
+        const allowBlank = isExplicitSessionUuidQuery(rawQ)
+        const filteredPrimary = allowBlank
+          ? rewrittenValue
+          : rewrittenValue.filter(
+              (row) => !isPlainObject(row) || !isUntitledSessionUuidLabel(row.displayTitle ?? row.label ?? ''),
+            )
+        if (Array.isArray(crossCandidates)) {
+          return { ok: true, value: mergeCandidateLists(filteredPrimary, crossCandidates) }
+        }
+        return { ok: true, value: filteredPrimary }
+      }
+      return { ok: true, value: rewrittenValue }
     } catch (error) {
       const code = error instanceof RelayError ? error.code : 'internal'
       recordFailure(endpoint, code)
@@ -4578,6 +4769,393 @@ export function installIntercept(options: InstallInterceptOptions): InterceptHan
     }
   }
 
+  function mergeCandidateLists(
+    primary: unknown[],
+    secondary: unknown[],
+    primaryCap = 35,
+    secondaryCap = 35,
+  ): Record<string, unknown>[] {
+    const seen = new Set<string>()
+    const out: Record<string, unknown>[] = []
+    for (const item of Array.isArray(primary) ? primary.slice(0, primaryCap) : []) {
+      if (!isPlainObject(item) || typeof item.sessionId !== 'string' || seen.has(item.sessionId)) continue
+      seen.add(item.sessionId)
+      out.push(item)
+    }
+    for (const item of Array.isArray(secondary) ? secondary.slice(0, secondaryCap) : []) {
+      if (!isPlainObject(item) || typeof item.sessionId !== 'string' || seen.has(item.sessionId)) continue
+      seen.add(item.sessionId)
+      out.push(item)
+    }
+    return out
+  }
+
+  async function collectCrossCandidatesForRemoteSession(
+    rawArgs: unknown,
+    currentServerId: string,
+    signal: AbortSignal | undefined,
+  ): Promise<CandidateRow[]> {
+    const refBridge = options.sessionRefBridge
+    if (refBridge === undefined) return []
+    const rawQuery = isPlainObject(rawArgs) && typeof rawArgs.query === 'string' ? rawArgs.query : ''
+    const localStrip = stripHostQueryTokens(rawQuery, ['本机', '本地', 'local'])
+    const targetDisplayName =
+      pool !== undefined
+        ? pool.getByServerId(currentServerId)?.displayName
+        : relayIdentityOf(singleRelay)?.serverName
+    const currentRemoteStrip = stripHostQueryTokens(rawQuery, [targetDisplayName ?? '', '家里云', '远端', 'remote'])
+    const onlyTargetingCurrentServer =
+      currentRemoteStrip.matchedHostAlias && !localStrip.matchedHostAlias && currentRemoteStrip.strippedQuery === ''
+
+    const tasks: Array<Promise<CandidateRow[]>> = []
+    if (!onlyTargetingCurrentServer && typeof refBridge.listLocalCandidates === 'function') {
+      const listLocal = refBridge.listLocalCandidates
+      tasks.push(
+        Promise.resolve()
+          .then(() => listLocal(localStrip.strippedQuery, signal))
+          .then((items) => {
+            if (!Array.isArray(items)) return []
+            const out: CandidateRow[] = []
+            for (const row of items) {
+              if (!isPlainObject(row) || typeof row.sessionId !== 'string' || row.sessionId === '') continue
+              const decorated = decorateCrossHostCandidate(row, { targetSessionId: row.sessionId, hostLabel: '本机' })
+              if (decorated !== undefined && matchesCandidateQuery(decorated, localStrip.strippedQuery, ['本机', '本地', 'local'])) {
+                out.push(decorated)
+              }
+            }
+            return out
+          })
+          .catch(() => []),
+      )
+    }
+    if (pool !== undefined) {
+      const otherOnline = pool.entries().filter(
+        (entry) =>
+          entry.serverId !== undefined &&
+          entry.serverId !== currentServerId &&
+          entry.client.state === 'online' &&
+          typeof entry.client.sessionRefBridge === 'function',
+      )
+      for (const entry of otherOnline) {
+        const entryServerId = entry.serverId as string
+        const otherStrip = stripHostQueryTokens(rawQuery, [entry.displayName, entry.serverName ?? '', '远端', 'remote'])
+        if (localStrip.matchedHostAlias && !otherStrip.matchedHostAlias && localStrip.strippedQuery === '') continue
+        tasks.push(
+          entry.client
+            .sessionRefBridge({ action: 'candidates', query: otherStrip.strippedQuery, limit: 25 }, signal)
+            .then((res) => {
+              const items = isPlainObject(res) && Array.isArray(res.items) ? res.items : []
+              const out: CandidateRow[] = []
+              for (const row of items) {
+                if (!isPlainObject(row) || typeof row.sessionId !== 'string' || row.sessionId === '') continue
+                const decorated = decorateCrossHostCandidate(row, {
+                  targetSessionId: toVirtual(entryServerId, row.sessionId),
+                  hostLabel: entry.displayName || '远端',
+                })
+                if (
+                  decorated !== undefined &&
+                  matchesCandidateQuery(decorated, otherStrip.strippedQuery, [entry.displayName, '远端', 'remote'])
+                ) {
+                  out.push(decorated)
+                }
+              }
+              return out
+            })
+            .catch(() => []),
+        )
+      }
+    }
+    const lists = await Promise.all(tasks)
+    return lists.flat()
+  }
+
+  async function mergedSessionReferenceCandidatesCall(
+    endpoint: string,
+    payload: unknown,
+    args: unknown,
+    signal: AbortSignal | undefined,
+    peer: unknown,
+  ): Promise<unknown> {
+    const rawQuery = isPlainObject(args) && typeof args.query === 'string' ? args.query : ''
+    const localStrip = stripHostQueryTokens(rawQuery, ['本机', '本地', 'local'])
+    const localPayload =
+      localStrip.matchedHostAlias && isPlainObject(payload) && isPlainObject(payload.args)
+        ? { ...payload, args: { ...payload.args, query: localStrip.strippedQuery } }
+        : payload
+
+    const remoteTargets: Array<{
+      serverId: string
+      hostLabel: string
+      aliases: string[]
+      client: RelayClient
+    }> = []
+    const skipRemote = localStrip.matchedHostAlias && localStrip.strippedQuery === ''
+    if (!skipRemote) {
+      if (pool !== undefined) {
+        for (const entry of pool.entries()) {
+          if (
+            entry.serverId !== undefined &&
+            entry.client.state === 'online' &&
+            typeof entry.client.sessionRefBridge === 'function'
+          ) {
+            remoteTargets.push({
+              serverId: entry.serverId,
+              hostLabel: entry.displayName || entry.serverName || '远端',
+              aliases: [entry.displayName, entry.serverName ?? '', '家里云', '远端', 'remote'],
+              client: entry.client,
+            })
+          }
+        }
+      } else {
+        const identity = relayIdentityOf(singleRelay)
+        if (identity !== undefined && singleRelay.state === 'online' && typeof singleRelay.sessionRefBridge === 'function') {
+          remoteTargets.push({
+            serverId: identity.serverId,
+            hostLabel: identity.serverName || '远端',
+            aliases: [identity.serverName, '家里云', '远端', 'remote'],
+            client: singleRelay,
+          })
+        }
+      }
+    }
+
+    const [localEnvelope, ...remoteLists] = await Promise.all([
+      (chainTarget.dispatchRpc as (this: unknown, ...callArgs: unknown[]) => Promise<unknown>).call(
+        raw,
+        endpoint,
+        localPayload,
+        signal,
+        peer,
+      ),
+      ...remoteTargets.map((target) => {
+        const strip = stripHostQueryTokens(rawQuery, target.aliases)
+        return target.client
+          .sessionRefBridge({ action: 'candidates', query: strip.strippedQuery, limit: 35 }, signal)
+          .then((res) => {
+            const items = isPlainObject(res) && Array.isArray(res.items) ? res.items : []
+            const out: CandidateRow[] = []
+            for (const row of items) {
+              if (!isPlainObject(row) || typeof row.sessionId !== 'string' || row.sessionId === '') continue
+              const decorated = decorateCrossHostCandidate(row, {
+                targetSessionId: toVirtual(target.serverId, row.sessionId),
+                hostLabel: target.hostLabel,
+              })
+              if (decorated !== undefined && matchesCandidateQuery(decorated, strip.strippedQuery, target.aliases)) {
+                out.push(decorated)
+              }
+            }
+            return out
+          })
+          .catch(() => [] as CandidateRow[])
+      }),
+    ])
+
+    if (!isPlainObject(localEnvelope) || localEnvelope.ok !== true || !Array.isArray(localEnvelope.value)) {
+      return localEnvelope
+    }
+    const allowBlankLocal = isExplicitSessionUuidQuery(rawQuery)
+    const filteredLocal = allowBlankLocal
+      ? localEnvelope.value
+      : localEnvelope.value.filter(
+          (row) => !isPlainObject(row) || !isUntitledSessionUuidLabel(row.displayTitle ?? row.label ?? ''),
+        )
+    const remoteFlat = remoteLists.flat()
+    if (remoteFlat.length === 0) {
+      return { ok: true, value: filteredLocal }
+    }
+    return {
+      ok: true,
+      value: mergeCandidateLists(filteredLocal, remoteFlat, 40, 40),
+    }
+  }
+
+  async function upgradeOutgoingPlainMentions(
+    args: unknown,
+    namespace: string,
+    method: string,
+    contextServerId: string | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown> {
+    const refBridge = options.sessionRefBridge
+    if (refBridge === undefined) return args
+    const texts = collectReferenceTexts(namespace, method, args)
+    if (texts.length === 0 || !texts.some((t) => mayContainPlainSessionMention(t))) return args
+
+    const explicitUuids = new Set<string>()
+    for (const t of texts) {
+      for (const u of extractPlainMentionUuids(t)) explicitUuids.add(u)
+    }
+
+    const remoteEntries: Array<{
+      serverId: string
+      hostLabel: string
+      aliases: Set<string>
+      client: RelayClient
+    }> = []
+    if (pool !== undefined) {
+      for (const entry of pool.entries()) {
+        if (
+          entry.serverId !== undefined &&
+          entry.client.state === 'online' &&
+          typeof entry.client.sessionRefBridge === 'function'
+        ) {
+          remoteEntries.push({
+            serverId: entry.serverId,
+            hostLabel: entry.displayName || entry.serverName || '远端',
+            aliases: new Set(
+              [entry.displayName, entry.serverName ?? '', 'homelab', '家里云', '远端', 'remote']
+                .filter(Boolean)
+                .map((s) => s.toLocaleLowerCase()),
+            ),
+            client: entry.client,
+          })
+        }
+      }
+    } else {
+      const identity = relayIdentityOf(singleRelay)
+      if (identity !== undefined && singleRelay.state === 'online' && typeof singleRelay.sessionRefBridge === 'function') {
+        remoteEntries.push({
+          serverId: identity.serverId,
+          hostLabel: identity.serverName || '远端',
+          aliases: new Set(
+            [identity.serverName || '远端', 'homelab', '家里云', '远端', 'remote'].map((s) => s.toLocaleLowerCase()),
+          ),
+          client: singleRelay,
+        })
+      }
+    }
+
+    const tasks: Array<Promise<CandidateRow[]>> = []
+    if (typeof refBridge.listLocalCandidates === 'function') {
+      const listLocal = refBridge.listLocalCandidates
+      tasks.push(
+        Promise.resolve()
+          .then(() => listLocal('', signal))
+          .then((items) => {
+            if (!Array.isArray(items)) return []
+            const out: CandidateRow[] = []
+            for (const row of items) {
+              if (!isPlainObject(row) || typeof row.sessionId !== 'string' || row.sessionId === '') continue
+              const decorated = decorateCrossHostCandidate(row, { targetSessionId: row.sessionId, hostLabel: '本机' })
+              if (decorated !== undefined) out.push(decorated)
+              if (contextServerId === undefined) {
+                out.push(row as unknown as CandidateRow)
+              }
+            }
+            return out
+          })
+          .catch(() => []),
+      )
+      for (const uuid of explicitUuids) {
+        if (isVirtual(uuid)) continue
+        tasks.push(
+          Promise.resolve()
+            .then(() => listLocal(uuid, signal))
+            .then((items) => {
+              if (!Array.isArray(items)) return []
+              const out: CandidateRow[] = []
+              for (const row of items) {
+                const decorated = decorateCrossHostCandidate(row, {
+                  targetSessionId: isPlainObject(row) && typeof row.sessionId === 'string' ? row.sessionId : '',
+                  hostLabel: '本机',
+                })
+                if (decorated !== undefined) out.push(decorated)
+              }
+              return out
+            })
+            .catch(() => []),
+        )
+      }
+    }
+    for (const rEntry of remoteEntries) {
+      tasks.push(
+        rEntry.client
+          .sessionRefBridge({ action: 'candidates', query: '', limit: 40 }, signal)
+          .then((res) => {
+            const items = isPlainObject(res) && Array.isArray(res.items) ? res.items : []
+            const out: CandidateRow[] = []
+            for (const row of items) {
+              if (!isPlainObject(row) || typeof row.sessionId !== 'string' || row.sessionId === '') continue
+              const virtId = toVirtual(rEntry.serverId, row.sessionId)
+              const decorated = decorateCrossHostCandidate(row, { targetSessionId: virtId, hostLabel: rEntry.hostLabel })
+              if (decorated !== undefined) out.push(decorated)
+              if (contextServerId === rEntry.serverId) {
+                out.push({
+                  ...(row as unknown as CandidateRow),
+                  sessionId: virtId,
+                })
+              }
+            }
+            return out
+          })
+          .catch(() => []),
+      )
+      for (const uuid of explicitUuids) {
+        const rawId = fromVirtual(uuid)?.id ?? uuid
+        tasks.push(
+          rEntry.client
+            .sessionRefBridge({ action: 'candidates', query: rawId, limit: 10 }, signal)
+            .then((res) => {
+              const items = isPlainObject(res) && Array.isArray(res.items) ? res.items : []
+              const out: CandidateRow[] = []
+              for (const row of items) {
+                if (!isPlainObject(row) || typeof row.sessionId !== 'string' || row.sessionId === '') continue
+                const decorated = decorateCrossHostCandidate(row, {
+                  targetSessionId: toVirtual(rEntry.serverId, row.sessionId),
+                  hostLabel: rEntry.hostLabel,
+                })
+                if (decorated !== undefined) out.push(decorated)
+              }
+              return out
+            })
+            .catch(() => []),
+        )
+      }
+    }
+
+    const candidateLists = await Promise.all(tasks)
+    const candidates = candidateLists.flat()
+
+    const resolveUuid = (rawUuid: string, hostTag?: string): { sessionId: string; label?: string } => {
+      const tagLower = typeof hostTag === 'string' ? hostTag.trim().toLocaleLowerCase() : ''
+      const isLocalTag = tagLower === '本机' || tagLower === '本地' || tagLower === 'local'
+      if (isVirtual(rawUuid)) {
+        return { sessionId: rawUuid, label: hostTag ? prefixHostTag(hostTag, rawUuid) : rawUuid }
+      }
+      if (isLocalTag) {
+        const hit = candidates.find((c) => c.sessionId === rawUuid)
+        return {
+          sessionId: rawUuid,
+          label: hit?.displayTitle ?? prefixHostTag('本机', rawUuid),
+        }
+      }
+      if (tagLower !== '') {
+        const matchedRemote = remoteEntries.find((e) => e.aliases.has(tagLower))
+        if (matchedRemote !== undefined) {
+          const virtId = toVirtual(matchedRemote.serverId, rawUuid)
+          const hit = candidates.find((c) => c.sessionId === virtId)
+          return {
+            sessionId: virtId,
+            label: hit?.displayTitle ?? prefixHostTag(matchedRemote.hostLabel, rawUuid),
+          }
+        }
+      }
+      const exact = candidates.find((c) => c.sessionId === rawUuid || c.sessionId.endsWith(`~${rawUuid}`))
+      if (exact !== undefined) {
+        return { sessionId: exact.sessionId, label: exact.displayTitle ?? exact.label ?? rawUuid }
+      }
+      if (contextServerId !== undefined) {
+        return { sessionId: toVirtual(contextServerId, rawUuid), label: rawUuid }
+      }
+      return { sessionId: rawUuid, label: rawUuid }
+    }
+
+    const cloned = structuredClone(args)
+    return mapReferenceTexts(namespace, method, cloned, (text) =>
+      upgradePlainTextSessionMentions(text, { candidates, resolveUuid }),
+    )
+  }
+
   /**
    * The T52 `session/modelCatalog` route: the local catalog stays the base,
    * and while the relay is online WITH a handshake the relay's catalog folds
@@ -4761,6 +5339,155 @@ export function installIntercept(options: InstallInterceptOptions): InterceptHan
     return { args: { ...args, request: { ...request, provider: providerParts.id } } }
   }
 
+  function isMachineLocalCredentialRef(ref: string): boolean {
+    return ref === 'MAGPIE_GATEWAY_KEY' || ref === 'MA_API_KEY'
+  }
+
+  function isMachineLocalHostname(rawHost: string): boolean {
+    const host = rawHost.replace(/^\[|\]$/gu, '').toLowerCase()
+    if (
+      host === 'localhost' ||
+      host === '::1' ||
+      host.endsWith('.local') ||
+      host.endsWith('.ts.net') ||
+      host.endsWith('.lan') ||
+      host.endsWith('.internal')
+    ) {
+      return true
+    }
+    const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u.exec(host)
+    if (ipv4 !== null) {
+      const a = Number(ipv4[1])
+      const b = Number(ipv4[2])
+      if (a === 127 || a === 10) return true
+      if (a === 192 && b === 168) return true
+      if (a === 172 && b >= 16 && b <= 31) return true
+      if (a === 169 && b === 254) return true
+      if (a === 100 && b >= 64 && b <= 127) return true
+    }
+    if (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) {
+      return true
+    }
+    return false
+  }
+
+  function isMachineLocalProvider(providerId: string, providerValue: unknown): boolean {
+    if (
+      providerId === 'magpie' ||
+      providerId.startsWith('magpie-') ||
+      providerId.endsWith('-magpie') ||
+      providerId === 'ma'
+    ) {
+      return true
+    }
+    if (isPlainObject(providerValue) && typeof providerValue.baseURL === 'string') {
+      try {
+        const host = new URL(providerValue.baseURL).hostname
+        if (isMachineLocalHostname(host)) {
+          return true
+        }
+      } catch {
+        // Keep non-URL strings untouched.
+      }
+    }
+    return false
+  }
+
+  function filterSharedLlmMutateOps(ops: unknown[]): Record<string, unknown>[] {
+    const out: Record<string, unknown>[] = []
+    for (const op of ops) {
+      if (!isPlainObject(op) || !Array.isArray(op.path)) continue
+      const p0 = op.path[0]
+      const p1 = op.path[1]
+      if (p0 === 'providers') {
+        if (typeof p1 === 'string') {
+          const candidateVal = op.op === 'set' && op.path.length === 2 ? op.value : undefined
+          if (!isMachineLocalProvider(p1, candidateVal)) {
+            out.push(op)
+          }
+        } else if (op.path.length === 1 && op.op === 'set' && isPlainObject(op.value)) {
+          for (const [pid, pval] of Object.entries(op.value)) {
+            if (!isMachineLocalProvider(pid, pval)) {
+              out.push({ op: 'set', path: ['providers', pid], value: pval })
+            }
+          }
+        }
+        continue
+      }
+      out.push(op)
+    }
+    return out
+  }
+
+  async function mirrorModelAndCredentialWriteCall(
+    endpoint: string,
+    payload: unknown,
+    args: unknown,
+    signal: AbortSignal | undefined,
+    peer: unknown,
+  ): Promise<unknown> {
+    const localEnvelope = (await (chainTarget.dispatchRpc as (this: unknown, ...callArgs: unknown[]) => Promise<unknown>).call(
+      raw,
+      endpoint,
+      payload,
+      signal,
+      peer,
+    )) as unknown
+    if (!isPlainObject(localEnvelope) || localEnvelope.ok !== true) {
+      return localEnvelope
+    }
+    const onlineClients =
+      pool !== undefined
+        ? pool
+            .entries()
+            .filter((entry) => entry.serverId !== undefined && entry.client.state === 'online')
+            .map((entry) => entry.client)
+        : singleRelay?.state === 'online'
+          ? [singleRelay]
+          : []
+    if (onlineClients.length === 0 || !isPlainObject(args)) {
+      return localEnvelope
+    }
+    const invokeRemote = (ns: string, method: string, remoteArgs: unknown): Promise<PromiseSettledResult<unknown>[]> => {
+      const timeoutSig = typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(4500) : signal
+      return Promise.allSettled(onlineClients.map((client) => client.invoke(ns, method, remoteArgs, timeoutSig)))
+    }
+    if (endpoint === 'credentials/set') {
+      const { ref, value } = args
+      if (typeof ref === 'string' && typeof value === 'string' && value.length > 0 && !isMachineLocalCredentialRef(ref)) {
+        await invokeRemote('credentials', 'set', { ref, value })
+      }
+    } else if (endpoint === 'credentials/unset') {
+      const { ref } = args
+      if (typeof ref === 'string' && !isMachineLocalCredentialRef(ref)) {
+        await invokeRemote('credentials', 'unset', { ref })
+      }
+    } else if (endpoint === 'settings/mutate') {
+      if (args.ns === 'llm-pi-ai' && Array.isArray(args.ops)) {
+        const remoteOps = filterSharedLlmMutateOps(args.ops)
+        if (remoteOps.length > 0) {
+          await invokeRemote('settings', 'mutate', { ns: 'llm-pi-ai', ops: remoteOps })
+        }
+      }
+    } else if (endpoint === 'settings/update' || endpoint === 'settings/replace') {
+      if (args.ns === 'llm-pi-ai') {
+        const section = isPlainObject(args.patch) ? args.patch : isPlainObject(args.section) ? args.section : undefined
+        if (section !== undefined && isPlainObject(section.providers)) {
+          const remoteOps: Record<string, unknown>[] = []
+          for (const [pid, pval] of Object.entries(section.providers)) {
+            if (!isMachineLocalProvider(pid, pval)) {
+              remoteOps.push({ op: 'set', path: ['providers', pid], value: pval })
+            }
+          }
+          if (remoteOps.length > 0) {
+            await invokeRemote('settings', 'mutate', { ns: 'llm-pi-ai', ops: remoteOps })
+          }
+        }
+      }
+    }
+    return localEnvelope
+  }
+
   const wrappedDispatch = function wrappedDispatch(
     this: unknown,
     endpoint: string,
@@ -4806,6 +5533,42 @@ export function installIntercept(options: InstallInterceptOptions): InterceptHan
       }
       if (endpoint === 'session/modelCatalog') {
         return mergedModelCatalogCall(endpoint, payload, signal, peer)
+      }
+      if (endpoint === 'sessionReferenceResolver/candidates' && options.sessionRefBridge !== undefined) {
+        return mergedSessionReferenceCandidatesCall(endpoint, payload, args, signal, peer)
+      }
+      if (
+        endpoint === 'credentials/set' ||
+        endpoint === 'credentials/unset' ||
+        endpoint === 'settings/mutate' ||
+        endpoint === 'settings/update' ||
+        endpoint === 'settings/replace'
+      ) {
+        return mirrorModelAndCredentialWriteCall(endpoint, payload, args, signal, peer)
+      }
+      if (
+        options.sessionRefBridge !== undefined &&
+        (endpoint === 'session/prompt' ||
+          endpoint === 'subagents/prompt' ||
+          endpoint === 'session/updateQueue' ||
+          endpoint === 'commands/execute')
+      ) {
+        const slashIdx = endpoint.indexOf('/')
+        const ns = slashIdx === -1 ? endpoint : endpoint.slice(0, slashIdx)
+        const mth = slashIdx === -1 ? '' : endpoint.slice(slashIdx + 1)
+        const texts = collectReferenceTexts(ns, mth, args)
+        if (texts.some((t) => mayContainPlainSessionMention(t))) {
+          return upgradeOutgoingPlainMentions(args, ns, mth, undefined, signal).then((upgradedArgs) => {
+            const nextPayload = isPlainObject(payload) ? { ...payload, args: upgradedArgs } : payload
+            return (chainTarget.dispatchRpc as (...callArgs: unknown[]) => unknown).call(
+              raw,
+              endpoint,
+              nextPayload,
+              signal,
+              peer,
+            )
+          })
+        }
       }
       return (chainTarget.dispatchRpc as (...callArgs: unknown[]) => unknown).call(raw, endpoint, payload, signal, peer)
     }

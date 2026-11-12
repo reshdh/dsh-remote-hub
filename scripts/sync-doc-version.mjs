@@ -38,8 +38,8 @@ const targets = ['README.md', 'README.zh-CN.md'].flatMap((file) => [
   {
     file,
     label: 'profile dependency example',
-    pattern: /"dsh-zen-remote": "\^\d+\.\d+\.\d+"/,
-    replace: `"dsh-zen-remote": "^${version}"`,
+    pattern: /"dsh-remote-hub": "\^\d+\.\d+\.\d+"/,
+    replace: `"dsh-remote-hub": "^${version}"`,
   },
 ])
 

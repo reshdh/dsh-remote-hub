@@ -91,7 +91,7 @@ function driveConfigForms(ctx) {
       // The device token's configured flag reads the describe view's secrets
       // sidecar (T16); the fake carries the empty sidecar.
       describe: () => ({
-        getSnapshot: () => ({ view: { namespaces: [{ ns: 'dsh-zen-remote', secrets: [] }] } }),
+        getSnapshot: () => ({ view: { namespaces: [{ ns: 'dsh-remote-hub', secrets: [] }] } }),
         subscribe: () => () => {},
       }),
       whileServed(namespaces, register) {
@@ -137,12 +137,12 @@ test('desktop shell: the settings page still registers (locale + row config bloc
     assert.equal(calls.localeRegisters[0].ns, 'mobileNav')
 
     const formsCalls = driveConfigForms(ctx)
-    assert.deepEqual(formsCalls.whileServed[0].namespaces, ['dsh-zen-remote'])
+    assert.deepEqual(formsCalls.whileServed[0].namespaces, ['dsh-remote-hub'])
     assert.equal(formsCalls.slotsInjected[0].name, 'plugins.row.config')
     const registration = formsCalls.slotsRegistered[0]
     assert.notEqual(registration, undefined, 'the row config block registers on the desktop shell')
     assert.equal(registration.options.name, 'plugins.row.config')
-    assert.equal(registration.options.key, 'dsh-zen-remote#dsh-zen-remote')
+    assert.equal(registration.options.key, 'dsh-remote-hub#dsh-remote-hub')
     assert.equal(registration.options.locale, 'mobileNav')
     // The injected share hands the component the staged form controller.
     const share = registration.options.inject()
@@ -163,7 +163,7 @@ test('plain web: the settings page registers the same way', async () => {
   assert.equal(calls.localeRegisters.length, 1)
   const formsCalls = driveConfigForms(ctx)
   assert.equal(formsCalls.slotsRegistered.length, 1)
-  assert.equal(formsCalls.slotsRegistered[0].options.key, 'dsh-zen-remote#dsh-zen-remote')
+  assert.equal(formsCalls.slotsRegistered[0].options.key, 'dsh-remote-hub#dsh-remote-hub')
 })
 
 test('configForms is lazy: nothing outside the ctx.inject callback touches it', async () => {

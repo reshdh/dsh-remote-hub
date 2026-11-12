@@ -326,6 +326,17 @@ const RELAY_METHODS: Record<string, RelayMethod> = {
   // error texts may carry endpoint or credential details the client never
   // shows (it keeps its own local failures instead).
   'session/modelCatalog': { fields: [], resultFilter: 'model-catalog' },
+  // settings / credentials / llm — paired desktop-client model & credential sync
+  'settings/describe': { fields: [] },
+  'settings/mutate': { fields: [] },
+  'settings/update': { fields: [] },
+  'settings/replace': { fields: [] },
+  'credentials/describe': { fields: [] },
+  'credentials/set': { fields: [] },
+  'credentials/unset': { fields: [] },
+  'llm/listProviders': { fields: [] },
+  'llm/listConfigurableProviders': { fields: [] },
+  'llm/discoverModels': { fields: [] },
   // job/*
   'job/list': { fields: ['request.sessionId'], stream: true },
   'job/follow': { fields: ['request.sessionId'], stream: true },
@@ -342,6 +353,8 @@ const RELAY_METHODS: Record<string, RelayMethod> = {
   'workspace/unpinSession': { fields: ['request.sessionId'] },
   'workspace/archiveSession': { fields: ['request.sessionId'] },
   'workspace/unarchiveSession': { fields: ['request.sessionId'] },
+  'workspace/rename': { fields: ['request.workspaceId'] },
+  'workspace/delete': { fields: ['request.workspaceId'] },
   // workspace — the global follow stream
   'workspace/follow': { fields: [], stream: true, streamFilter: 'workspace' },
   // the forwarded-event subscription (T32): special entry, no session fields —

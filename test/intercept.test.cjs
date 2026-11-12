@@ -877,8 +877,8 @@ test('workspace/follow merges the two legs: local first, remote upserts + merged
   relay.streams[0].gate.push(REMOTE_BASELINE)
   const mergedRemote = await readSome(iterator, 5)
   assert.deepEqual(mergedRemote, [
-    { type: 'upsert', workspace: { ...REMOTE_BASELINE.value.items[0], workspaceId: toVirtual(SERVER_ID, 'w-1'), title: `主服务器 · 远端一`, sessionIds: [toVirtual(SERVER_ID, 'session-a'), toVirtual(SERVER_ID, 'session-b')] } },
-    { type: 'upsert', workspace: { ...REMOTE_BASELINE.value.items[1], workspaceId: toVirtual(SERVER_ID, 'w-2'), title: `主服务器 · 远端二`, sessionIds: [toVirtual(SERVER_ID, 'session-c')] } },
+    { type: 'upsert', workspace: { ...REMOTE_BASELINE.value.items[0], workspaceId: toVirtual(SERVER_ID, 'w-1'), title: `远端一`, sessionIds: [toVirtual(SERVER_ID, 'session-a'), toVirtual(SERVER_ID, 'session-b')] } },
+    { type: 'upsert', workspace: { ...REMOTE_BASELINE.value.items[1], workspaceId: toVirtual(SERVER_ID, 'w-2'), title: `远端二`, sessionIds: [toVirtual(SERVER_ID, 'session-c')] } },
     { type: 'order', workspaceIds: ['ws-local', toVirtual(SERVER_ID, 'w-1'), toVirtual(SERVER_ID, 'w-2')] },
     { type: 'archived', archivedSessionIds: [toVirtual(SERVER_ID, 'session-b')] },
     { type: 'pinned', pinnedSessionIds: [] },
@@ -893,8 +893,8 @@ test('workspace/follow merges the two legs: local first, remote upserts + merged
   localGate.push({ type: 'order', workspaceIds: ['ws-local'] })
   const afterDeath = await readSome(iterator, 3)
   assert.deepEqual(afterDeath.map((frame) => frame.type), ['upsert', 'upsert', 'order'])
-  assert.equal(afterDeath[0].workspace.title, '主服务器 · 远端一（离线）')
-  assert.equal(afterDeath[1].workspace.title, '主服务器 · 远端二（离线）')
+  assert.equal(afterDeath[0].workspace.title, '远端一（离线）')
+  assert.equal(afterDeath[1].workspace.title, '远端二（离线）')
   assert.deepEqual(afterDeath[2], { type: 'order', workspaceIds: ['ws-local', toVirtual(SERVER_ID, 'w-1'), toVirtual(SERVER_ID, 'w-2')] },
     'the shown remote state survives the death — the local order still merges it')
 
@@ -905,7 +905,7 @@ test('workspace/follow merges the two legs: local first, remote upserts + merged
   relay.transition('online')
   const restored = await readSome(iterator, 2)
   assert.deepEqual(restored.map((frame) => frame.type), ['upsert', 'upsert'])
-  assert.equal(restored[0].workspace.title, '主服务器 · 远端一', 'the titles restored with the online transition itself')
+  assert.equal(restored[0].workspace.title, '远端一', 'the titles restored with the online transition itself')
   await waitForStream(relay, 2)
   relay.streams[1].gate.push(REMOTE_BASELINE)
   const remerged = await readSome(iterator, 5)
@@ -1139,8 +1139,8 @@ test('a server RENAME (same serverId) re-upserts under the new title without reo
   relay.transition('online')
   const renamed = await readSome(iterator, 2)
   assert.deepEqual(renamed, [
-    { type: 'upsert', workspace: { ...REMOTE_BASELINE.value.items[0], workspaceId: toVirtual(SERVER_ID, 'w-1'), title: '改名的服务器 · 远端一', sessionIds: [toVirtual(SERVER_ID, 'session-a'), toVirtual(SERVER_ID, 'session-b')] } },
-    { type: 'upsert', workspace: { ...REMOTE_BASELINE.value.items[1], workspaceId: toVirtual(SERVER_ID, 'w-2'), title: '改名的服务器 · 远端二', sessionIds: [toVirtual(SERVER_ID, 'session-c')] } },
+    { type: 'upsert', workspace: { ...REMOTE_BASELINE.value.items[0], workspaceId: toVirtual(SERVER_ID, 'w-1'), title: '远端一', sessionIds: [toVirtual(SERVER_ID, 'session-a'), toVirtual(SERVER_ID, 'session-b')] } },
+    { type: 'upsert', workspace: { ...REMOTE_BASELINE.value.items[1], workspaceId: toVirtual(SERVER_ID, 'w-2'), title: '远端二', sessionIds: [toVirtual(SERVER_ID, 'session-c')] } },
   ])
   assert.equal(relay.streams.length, 1, 'no reopen for a rename')
   await new Promise((resolve) => setTimeout(resolve, 20))
@@ -1182,9 +1182,9 @@ test('unpair / revocation keeps the shown group (serverId persists server-side);
   const kept = await readSome(iterator, 3)
   kept.forEach(ui.apply)
   assert.deepEqual(kept.map((frame) => frame.type), ['upsert', 'upsert', 'order'])
-  assert.equal(kept[0].workspace.title, '主服务器 · 远端一（令牌已吊销）')
+  assert.equal(kept[0].workspace.title, '远端一（令牌已吊销）')
   assert.deepEqual(kept[2], { type: 'order', workspaceIds: ['ws-local', v1, v2] })
-  assert.equal(ui.model.items[1].title, '主服务器 · 远端一（令牌已吊销）')
+  assert.equal(ui.model.items[1].title, '远端一（令牌已吊销）')
 
   // re-paired to the SAME server id: the annotation clears with its own
   // plain-title upserts first (T34-fix), then the leg reopens and the new
@@ -1194,7 +1194,7 @@ test('unpair / revocation keeps the shown group (serverId persists server-side);
   relay.transition('online')
   const unannotated = await readSome(iterator, 2)
   unannotated.forEach(ui.apply)
-  assert.equal(ui.model.items[1].title, '主服务器 · 远端一', 'the re-pair restored the plain titles')
+  assert.equal(ui.model.items[1].title, '远端一', 'the re-pair restored the plain titles')
   await waitForStream(relay, 2)
   const repairedBaseline = {
     type: 'baseline',
@@ -1209,7 +1209,7 @@ test('unpair / revocation keeps the shown group (serverId persists server-side);
   remerged.forEach(ui.apply)
   assert.deepEqual(remerged.map((frame) => frame.type), ['upsert', 'upsert', 'order', 'archived', 'pinned'])
   assert.equal(ui.ids(), `ws-local,${v1},${v2}`, 'the remote groups survived the revoke → re-pair round trip')
-  assert.equal(ui.model.items[1].title, '主服务器 · 重配后', 'the content came from the NEW baseline')
+  assert.equal(ui.model.items[1].title, '重配后', 'the content came from the NEW baseline')
   controller.abort()
   localGate.finish()
   handle.uninstall()
@@ -1357,7 +1357,7 @@ test('a re-handshake with a DIFFERENT server removes the old groups and reopens 
   relay.streams[1].gate.push(REMOTE_BASELINE)
   const next = await readSome(iterator, 5)
   assert.equal(next[0].workspace.workspaceId, toVirtual('ffffffff', 'w-1'))
-  assert.equal(next[0].workspace.title, '新服务器 · 远端一')
+  assert.equal(next[0].workspace.title, '远端一')
   assert.deepEqual(next[2], { type: 'order', workspaceIds: ['ws-local', toVirtual('ffffffff', 'w-1'), toVirtual('ffffffff', 'w-2')] })
   controller.abort()
   localGate.finish()
@@ -2202,8 +2202,8 @@ test('T34: the relay going offline annotates the shown group titles （离线）
   relay.streams[0].gate.throwNow(new RelayError('offline', '链路断了'))
   const annotated = await readSome(iterator, 2)
   assert.deepEqual(annotated.map((frame) => frame.type), ['upsert', 'upsert'])
-  assert.equal(annotated[0].workspace.title, '主服务器 · 远端一（离线）')
-  assert.equal(annotated[1].workspace.title, '主服务器 · 远端二（离线）')
+  assert.equal(annotated[0].workspace.title, '远端一（离线）')
+  assert.equal(annotated[1].workspace.title, '远端二（离线）')
 
   // local frames keep merging under the annotation while offline
   localGate.push({ type: 'order', workspaceIds: ['ws-local'] })
@@ -2216,12 +2216,12 @@ test('T34: the relay going offline annotates the shown group titles （离线）
   // baseline refreshes the content
   relay.transition('online')
   const cleared = await readSome(iterator, 2)
-  assert.equal(cleared[0].workspace.title, '主服务器 · 远端一')
+  assert.equal(cleared[0].workspace.title, '远端一')
   assert.ok(cleared.every((frame) => !(frame.workspace?.title ?? '').includes('（离线）')))
   await waitForStream(relay, 2)
   relay.streams[1].gate.push(REMOTE_BASELINE)
   const refreshed = await readSome(iterator, 5)
-  assert.equal(refreshed[0].workspace.title, '主服务器 · 远端一')
+  assert.equal(refreshed[0].workspace.title, '远端一')
   controller.abort()
   localGate.finish()
   handle.uninstall()
@@ -2241,22 +2241,22 @@ test('T34: revoked keeps the group and annotates 令牌已吊销; re-pair restor
   relay.transition('revoked')
   const annotated = await readSome(iterator, 2)
   assert.deepEqual(annotated.map((frame) => frame.type), ['upsert', 'upsert'])
-  assert.equal(annotated[0].workspace.title, '主服务器 · 远端一（令牌已吊销）')
+  assert.equal(annotated[0].workspace.title, '远端一（令牌已吊销）')
   assert.ok(relay.streams[0].aborted, 'the in-flight leg was cut')
 
   relay.transition('online')
   const cleared = await readSome(iterator, 2)
-  assert.equal(cleared[0].workspace.title, '主服务器 · 远端一')
+  assert.equal(cleared[0].workspace.title, '远端一')
   await waitForStream(relay, 2)
   relay.streams[1].gate.push(REMOTE_BASELINE)
   const restored = await readSome(iterator, 5)
-  assert.equal(restored[0].workspace.title, '主服务器 · 远端一')
+  assert.equal(restored[0].workspace.title, '远端一')
   controller.abort()
   localGate.finish()
   handle.uninstall()
 })
 
-test('T34: a version mismatch (compat.different) annotates 版本有差异 while online; offline outranks it', async () => {
+test('T34: a version mismatch (compat.different) keeps plain workspace titles while online; offline outranks it', async () => {
   const controller = new AbortController()
   const { gateway, localGate } = createMergeGateway(controller.signal)
   const relay = createControllableRelay({
@@ -2266,15 +2266,15 @@ test('T34: a version mismatch (compat.different) annotates 版本有差异 while
   const iterator = (await gateway.wireTap('workspace/follow', { args: {} }, undefined, gateway.operatorPeer(), controller.signal, { signal: controller.signal }))[Symbol.asyncIterator]()
   localGate.push(LOCAL_BASELINE)
   await readSome(iterator, 1)
-  // the FIRST baseline already carries the annotation (set at stream start)
+  // the FIRST baseline carries plain unprefixed title (mismatch suffix suppressed)
   relay.streams[0].gate.push(REMOTE_BASELINE)
   const mismatched = await readSome(iterator, 5)
-  assert.equal(mismatched[0].workspace.title, '主服务器 · 远端一（版本有差异）')
+  assert.equal(mismatched[0].workspace.title, '远端一')
 
   // offline outranks the mismatch: the titles re-annotate 离线
   relay.transition('offline')
   const annotated = await readSome(iterator, 2)
-  assert.equal(annotated[0].workspace.title, '主服务器 · 远端一（离线）')
+  assert.equal(annotated[0].workspace.title, '远端一（离线）')
   controller.abort()
   localGate.finish()
   handle.uninstall()
@@ -4846,11 +4846,11 @@ test('T34-fix: a version mismatch survives an offline round trip (PROBE1) — th
   // before the online transition) — wait, no: the transition itself emits
   // with annotationOf('online') = mismatch, so these upserts carry it
   const restored = await readSome(iterator, 2)
-  assert.equal(restored[0].workspace.title, '主服务器 · 远端一（版本有差异）', 'the mismatch annotation survived the outage')
+  assert.equal(restored[0].workspace.title, '远端一', 'the mismatch state survived the outage with plain title')
   await waitForStream(relay, 2)
   relay.streams[1].gate.push(REMOTE_BASELINE)
   const remerged = await readSome(iterator, 5)
-  assert.equal(remerged[0].workspace.title, '主服务器 · 远端一（版本有差异）', 'and the reopened baseline carries it too')
+  assert.equal(remerged[0].workspace.title, '远端一', 'and the reopened baseline carries it too')
   controller.abort()
   localGate.finish()
   handle.uninstall()
@@ -4871,7 +4871,7 @@ test('T34-fix: an offline flap with the stream STILL ALIVE restores the titles o
   // untouched
   relay.transition('offline')
   const off = await readSome(iterator, 2)
-  assert.equal(off[0].workspace.title, '主服务器 · 远端一（离线）')
+  assert.equal(off[0].workspace.title, '远端一（离线）')
 
   // the next invoke succeeds: back online. The stream does NOT reopen —
   // the clear's own upserts are the only restore path (the old code left
@@ -4879,7 +4879,7 @@ test('T34-fix: an offline flap with the stream STILL ALIVE restores the titles o
   relay.transition('online')
   const restored = await readSome(iterator, 2)
   assert.deepEqual(restored.map((frame) => frame.type), ['upsert', 'upsert'])
-  assert.equal(restored[0].workspace.title, '主服务器 · 远端一', 'the titles restored without a reopen')
+  assert.equal(restored[0].workspace.title, '远端一', 'the titles restored without a reopen')
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.equal(relay.streams.length, 1, 'no reopen — the leg never died')
   // and the stream keeps flowing merged under the plain titles
@@ -4936,6 +4936,14 @@ test('T34-fix: every client-table method classifies read or write; the T31 write
     // the write side too (refused remote-offline). The interceptor's own
     // uplink wiring lands in TA-2.
     'terminal/attach',
+    // dsh-remote-hub settings, credentials, and workspace management writes
+    'settings/mutate',
+    'settings/update',
+    'settings/replace',
+    'credentials/set',
+    'credentials/unset',
+    'workspace/rename',
+    'workspace/delete',
   ])
   for (const endpoint of Object.keys(CLIENT_METHOD_FIELDS)) {
     assert.ok(

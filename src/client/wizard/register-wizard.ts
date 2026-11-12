@@ -42,7 +42,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** `plugins.bundle.config` key: the bundle's package name. */
-export const WIZARD_BUNDLE_KEY = 'dsh-zen-remote'
+export const WIZARD_BUNDLE_KEY = 'dsh-remote-hub'
 
 export interface SaveRowFieldsOptions {
   /** Field names to remove (`op: 'unset'`) in the same atomic mutation. */

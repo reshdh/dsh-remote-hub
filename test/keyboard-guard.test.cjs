@@ -25,7 +25,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // -- the CSS half -------------------------------------------------------------
 
-const cssFile = readFileSync(join(ROOT, 'src', 'client', 'styles', 'composer.css.ts'), 'utf8')
+const cssFile = readFileSync(join(ROOT, 'src', 'client', 'styles', 'composer.css.ts'), 'utf8').replace(/\r\n/g, '\n')
 const css = cssFile.slice(cssFile.indexOf('export const COMPOSER_CSS'))
 
 test('T72 css: the MODEL_MENU body form accepts role=menu AND role=group, narrowed to _menu classes', () => {

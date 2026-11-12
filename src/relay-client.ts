@@ -64,6 +64,8 @@ const STREAM_UPLINK_PATH = '/_dsh/zen-remote/relay/v1/stream-uplink'
  * (`GET …/relay/ping`, answers `{ok:true}`). Used by probeHealth() only. */
 const PING_PATH = '/_dsh/zen-remote/relay/ping'
 const UNSHARE_PATH = '/_dsh/zen-remote/relay/v1/unshare'
+const WORKSPACE_MANAGE_PATH = '/_dsh/zen-remote/relay/v1/workspace-manage'
+const SESSION_REF_BRIDGE_PATH = '/_dsh/zen-remote/relay/v1/session-ref-bridge'
 const EVENT_RESULT_PATH = '/_dsh/zen-remote/relay/v1/event-result'
 const HTTP_PATH = '/_dsh/zen-remote/relay/v1/http'
 const UPLOAD_PATH = '/_dsh/zen-remote/relay/v1/upload'
@@ -354,6 +356,8 @@ export interface RelayClient {
    * A success proves the link and lifts a stale `offline` back to `online`,
    * exactly like invoke. */
   unshare(sessionId: string, signal?: AbortSignal): Promise<void>
+  workspaceManage(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>
+  sessionRefBridge(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>
   /** Answer one forwarded Remote event (T32): `eventId` is the ORIGINAL id
    * (the interceptor swapped the virtual one back), `result` the Remote
    * event OUTCOME, forwarded verbatim — the gateway validates it. The error
@@ -1497,6 +1501,22 @@ export function createRelayClient(options: CreateRelayClientOptions): RelayClien
     await exchange(UNSHARE_PATH, JSON.stringify({ sessionId }), signal, true, creds)
   }
 
+  async function workspaceManage(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    const creds = requireCredentials()
+    const payload = await exchange(WORKSPACE_MANAGE_PATH, JSON.stringify(input), signal, true, creds)
+    return payload.value
+  }
+
+  async function sessionRefBridge(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    const creds = requireCredentials()
+    const bodyJson = JSON.stringify(input)
+    const payload = await exchange(SESSION_REF_BRIDGE_PATH, bodyJson, signal, true, creds, {
+      timeoutMs: invokeTimeoutMs(requestTimeoutMs, bodyJson),
+      timeoutSetsOffline: false,
+    })
+    return payload.value
+  }
+
   async function http(route: string, query: string, signal?: AbortSignal): Promise<RelayHttpResult> {
     const creds = requireCredentials()
     const payload = await exchange(HTTP_PATH, JSON.stringify({ route, query }), signal, true, creds)
@@ -2157,6 +2177,8 @@ export function createRelayClient(options: CreateRelayClientOptions): RelayClien
     stop,
     invoke,
     unshare,
+    workspaceManage,
+    sessionRefBridge,
     postEventResult,
     openStream,
     http,

@@ -222,6 +222,8 @@ export interface RelayClient {
      * A success proves the link and lifts a stale `offline` back to `online`,
      * exactly like invoke. */
     unshare(sessionId: string, signal?: AbortSignal): Promise<void>;
+    workspaceManage(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
+    sessionRefBridge(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
     /** Answer one forwarded Remote event (T32): `eventId` is the ORIGINAL id
      * (the interceptor swapped the virtual one back), `result` the Remote
      * event OUTCOME, forwarded verbatim — the gateway validates it. The error

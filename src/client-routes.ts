@@ -43,7 +43,7 @@ import type { RelayClient, RelayHttpResult } from './relay-client.js'
 import { MAX_PAIRED_SERVERS } from './relay-pool.js'
 import type { RelayPool, RelayPoolEntryView } from './relay-pool.js'
 import { resolveDshVersion } from './relay-server.js'
-import { fromVirtual } from './virtual-id.js'
+import { fromVirtual, toVirtual } from './virtual-id.js'
 
 /** Prefix all client routes live under (one webServer prefix registration). */
 export const CLIENT_ROUTE_PREFIX = '/_dsh/zen-remote/client'
@@ -113,6 +113,9 @@ export const CLIENT_CURRENT_SESSION_ROUTE = `${CLIENT_ROUTE_PREFIX}/current-sess
  * the live clients stop with their records. Pool-mode only — a mount without
  * a pool has no paired list to edit and answers the unknown-path 404. */
 export const CLIENT_UNPAIR_ROUTE = `${CLIENT_ROUTE_PREFIX}/unpair`
+
+/** POST `{serverId?, action, path?, showHidden?}`: browse/mkdir/create remote workspaces. */
+export const CLIENT_WORKSPACE_MANAGE_ROUTE = `${CLIENT_ROUTE_PREFIX}/workspace-manage`
 
 /** Longest `sessionId` the current-session route accepts (T62): real ids —
  * a local `session-<uuid>` or a `zr~<serverId>~<id>` virtual id — are far
@@ -1129,6 +1132,67 @@ export function createClientHandler(options: ClientHandlerOptions): ClientHandle
         } catch (error) {
           // The relay's refusal travels with its code — the icon's alert
           // keys the short copy on it.
+          const code = error instanceof RelayError ? error.code : 'internal'
+          responseJson(res, 200, { ok: false, error: { code, message: error instanceof Error ? error.message : String(error) } })
+        }
+        return
+      }
+      if (route === CLIENT_WORKSPACE_MANAGE_ROUTE) {
+        if (method !== 'POST') {
+          res.setHeader('Allow', 'POST')
+          responseJson(res, 405, { ok: false, error: { code: 'method-not-allowed', message: 'Use POST' } })
+          return
+        }
+        if (!sameOriginPost(req)) {
+          responseJson(res, 403, {
+            ok: false,
+            error: { code: 'origin-rejected', message: 'The request must originate from this DSH Web application' },
+          })
+          return
+        }
+        const body = await readJsonBody(req)
+        const requestedServerId = typeof body.serverId === 'string' && body.serverId !== '' ? body.serverId : undefined
+        const pool = options.pool
+        let targetClient: RelayClient | undefined
+        let targetServerId: string | undefined
+        if (pool !== undefined) {
+          const entry = requestedServerId !== undefined
+            ? (pool.getByServerId(requestedServerId) ?? pool.entries().find((e) => e.serverId === requestedServerId || e.entryId === requestedServerId))
+            : pool.entries()[0]
+          targetClient = entry?.client
+          targetServerId = entry?.serverId ?? entry?.client?.handshakeInfo?.serverId
+        } else {
+          targetClient = options.getRelayClient?.()
+          targetServerId = targetClient?.handshakeInfo?.serverId
+        }
+        if (targetClient === undefined || typeof targetClient.workspaceManage !== 'function') {
+          responseJson(res, 503, { ok: false, error: { code: 'unavailable', message: 'No relay client is running' } })
+          return
+        }
+        try {
+          const value = await targetClient.workspaceManage({
+            action: body.action,
+            path: body.path,
+            ...(typeof body.parentPath === 'string' ? { parentPath: body.parentPath } : {}),
+            ...(typeof body.name === 'string' ? { name: body.name } : {}),
+            showHidden: body.showHidden === true,
+          })
+          const valueRecord = value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
+          const workspaceRecord = valueRecord?.workspace !== null && typeof valueRecord?.workspace === 'object'
+            ? (valueRecord.workspace as Record<string, unknown>)
+            : undefined
+          const createdWsId = body.action === 'create' && typeof workspaceRecord?.workspaceId === 'string'
+            ? workspaceRecord.workspaceId
+            : undefined
+          responseJson(res, 200, {
+            ok: true,
+            value,
+            serverId: targetServerId,
+            ...(createdWsId !== undefined && targetServerId !== undefined && targetServerId !== ''
+              ? { virtualWorkspaceId: toVirtual(targetServerId, createdWsId) }
+              : {}),
+          })
+        } catch (error) {
           const code = error instanceof RelayError ? error.code : 'internal'
           responseJson(res, 200, { ok: false, error: { code, message: error instanceof Error ? error.message : String(error) } })
         }

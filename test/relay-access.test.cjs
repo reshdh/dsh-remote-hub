@@ -37,7 +37,7 @@ test('decideInvoke: the three reviewer bypass requests are forbidden-method, dec
 
 test('decideInvoke: any unregistered method refuses, with or without a request object', () => {
   for (const [namespace, method, args] of [
-    ['settings', 'update', { ns: 'x', patch: {} }],
+    ['plugins', 'uninstall', { id: 'x' }],
     // T41a registered the goals bar, commands, the preset switches, the
     // workspace-files group and the whole terminal half — the REST of those
     // namespaces stay closed (global data, third-party surfaces, or calls

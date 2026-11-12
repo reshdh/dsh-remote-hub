@@ -6,7 +6,7 @@ const test = require('node:test')
 const compat = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'client', 'styles', 'compat.css.ts'),
   'utf8',
-)
+).replace(/\r\n/g, '\n')
 
 /*
  * @ace-zone/dsh-market's modal header is an unwrapping, unshrinking flex row

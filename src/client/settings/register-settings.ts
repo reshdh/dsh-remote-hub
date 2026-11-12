@@ -52,10 +52,10 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Settings entry (= profile entry id = bundle row id) this page edits. */
-export const SETTINGS_ENTRY_ID = 'dsh-zen-remote'
+export const SETTINGS_ENTRY_ID = 'dsh-remote-hub'
 
 /** `plugins.row.config` key: <package name>#<row id> as the bundle patch declares the row. */
-export const SETTINGS_ROW_KEY = 'dsh-zen-remote#dsh-zen-remote'
+export const SETTINGS_ROW_KEY = 'dsh-remote-hub#dsh-remote-hub'
 
 /**
  * Register the dictionaries, the settings stylesheet, and (lazily, only where

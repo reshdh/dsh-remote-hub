@@ -203,7 +203,7 @@ export function unshadowPatchYml(text: string, keys: readonly string[]): string 
     // The id line: an optional dash + `id: dsh-zen-remote`, trailing comment
     // allowed (`- id: agent-default-model # magpie` shows the shape). The
     // id KEY's column is the prefix length — `config:` sits at that column.
-    const idMatch = /^([ \t]*(?:-[ \t]+)?)(id):[ \t]*dsh-zen-remote[ \t]*(?:#.*)?$/u.exec(lines[i])
+    const idMatch = /^([ \t]*(?:-[ \t]+)?)(id):[ \t]*(?:dsh-remote-hub|dsh-zen-remote)[ \t]*(?:#.*)?$/u.exec(lines[i])
     if (idMatch === null) continue
     const keyIndent = idMatch[1].length
 

@@ -260,7 +260,7 @@ export async function runHostDevicePairCommand(ctx: CliExecutionContext): Promis
     }
   } else if (url !== '') {
     out.write(`${t('host.device.desktopCommand')}\n`)
-    out.write(`  dsh-zen-remote client pair ${url} --code ${code}\n`)
+    out.write(`  dsh-remote-hub client pair ${url} --code ${code}\n`)
     out.write(`${t('host.device.desktopWizard')}\n`)
   } else {
     out.write(`${t('host.device.noAddress')}\n`)

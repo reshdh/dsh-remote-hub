@@ -75,6 +75,7 @@ import { ADAPTERS } from './adapters/index.js'
 import { betterSidebarSurfaceDigest, extractBetterSidebarSurface, surfaceLooksHealthy } from './adapters/dsh-better-sidebar/surface.js'
 import { createRelayHandler, loadServerId, RELAY_PREFIX, resolveDshVersion } from './relay-server.js'
 import type { RelayGateway, RelayHandler } from './relay-server.js'
+import { installSessionQueryBridge, listCorpusSessionCandidates } from './session-ref-bridge.js'
 import { createBridgeRegistry, compareBridges } from './plugin-bridge.js'
 import { createWizardHandler, WIZARD_ROUTE_PREFIX } from './wizard/routes.js'
 import type { WizardHandlerOptions } from './wizard/routes.js'
@@ -587,6 +588,13 @@ export function apply(ctx: Context, config: MobileNavConfig = {}): void {
   const pluginLog = createPluginLog(ring, ctx.logger as Parameters<typeof createPluginLog>[1])
   const logWarn = pluginLog.warn
   const logInfo = pluginLog.info
+  const preExistingZenRemote = (ctx as Context & { reflect?: { get(name: string): unknown } }).reflect?.get('zenRemote')
+  if (preExistingZenRemote !== undefined && bridgeRegistry === undefined) {
+    logWarn(
+      'dsh-remote-hub: detected another zenRemote provider (dsh-zen-remote) already active in this DSH instance; skipping startup to avoid duplicate routes. Disable dsh-zen-remote in Plugins settings and reload dsh-remote-hub.',
+    )
+    return
+  }
   const effective = resolveConfig(config, readFileConfig(), process.env)
   // Lifecycle: the row came up. Role and both versions are the first things
   // an issue report needs.
@@ -789,6 +797,38 @@ export function apply(ctx: Context, config: MobileNavConfig = {}): void {
    * historic owner of the stop — never fires). */
   const cliManagedChildren: Array<{ stop(): void }> = []
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  let activeRelayPoolForBridge: RelayPool | undefined
+  const readRemoteSurfaceViaPool = async (
+    serverId: string,
+    remoteSessionId: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> => {
+    const entry = activeRelayPoolForBridge?.getByServerId(serverId)
+    if (entry === undefined || entry.client.state !== 'online') {
+      throw new Error(`远端节点 (${serverId}) 当前不在线，无法读取该历史会话`)
+    }
+    const res = await entry.client.sessionRefBridge({ action: 'read-surface', sessionId: remoteSessionId }, signal)
+    if (
+      res === null ||
+      typeof res !== 'object' ||
+      typeof (res as Record<string, unknown>).snapshot !== 'object' ||
+      (res as Record<string, unknown>).snapshot === null
+    ) {
+      throw new Error('远端节点未返回有效会话快照')
+    }
+    return (res as Record<string, unknown>).snapshot
+  }
+  const sqBridge = installSessionQueryBridge(
+    ctx as unknown as Parameters<typeof installSessionQueryBridge>[0],
+    {
+      originalSymbol: symbols.original,
+      readRemoteSurface: (serverId, remoteSessionId) => readRemoteSurfaceViaPool(serverId, remoteSessionId),
+      log: (format, ...args) => {
+        logInfo(`dsh-remote-hub ${format}`, ...args)
+      },
+      warn: logWarn,
+    },
+  )
   if (servesRole(effective.values.role)) {
     // A row that switched from client to host must not leave a stale relay
     // client where getRelayClient() can find it (T23a-fix) — and no stale
@@ -1339,6 +1379,14 @@ export function apply(ctx: Context, config: MobileNavConfig = {}): void {
           // Subagent reachability (T22c-fix): isAccessible walks the same
           // child→parent chain the activity tracker keeps fresh.
           parentOf: parentIndex.parentOf,
+          listSessionCandidates: ({ query, limit, isAccessible, signal }) =>
+            listCorpusSessionCandidates((name) => relayCtx.reflect.get(name), {
+              query,
+              limit,
+              isAccessible,
+              signal,
+            }),
+          readSessionSurface: (sessionId) => sqBridge.readLocalSurface(sessionId),
           serverInfo: {
             serverId: loadServerId(home),
             // serverName is a volatile row setting ({ get() } wrapped) that
@@ -1546,6 +1594,7 @@ export function apply(ctx: Context, config: MobileNavConfig = {}): void {
       },
     })
     clientRelayPool = relayPool
+    activeRelayPoolForBridge = relayPool
     // A stopped or reloaded row must not leave a stale pool where the module
     // getter can hand it out (T23a-fix's discipline), and its clients'
     // reconnect machinery must not outlive the row either: stop() ends every
@@ -1554,6 +1603,7 @@ export function apply(ctx: Context, config: MobileNavConfig = {}): void {
     ctx.effect(() => () => {
       relayPool.stop()
       if (clientRelayPool === relayPool) clientRelayPool = undefined
+      if (activeRelayPoolForBridge === relayPool) activeRelayPoolForBridge = undefined
     }, 'dsh-zen-remote: relay pool disposal')
     // The plugin bridge's live verdict (PB-2), per POOL ENTRY now (MS-5) — a
     // host has no remote sessions of its own to bridge anything into, and
@@ -1705,6 +1755,23 @@ export function apply(ctx: Context, config: MobileNavConfig = {}): void {
         // PB-25b: each merged stream reports its real-session inventory
         // share into the union above.
         createSessionInventorySlot,
+        sessionRefBridge: {
+          listLocalCandidates: (query, signal) => {
+            const currentOpenId =
+              reportedCurrentSession.kind === 'open' && typeof reportedCurrentSession.sessionId === 'string'
+                ? reportedCurrentSession.sessionId
+                : undefined
+            return listCorpusSessionCandidates((name) => gatewayCtx.reflect.get(name), {
+              query,
+              limit: 40,
+              excludeSessionId: currentOpenId,
+              signal,
+            })
+          },
+          readLocalSurface: (sessionId) => sqBridge.readLocalSurface(sessionId),
+          readRemoteSurface: (serverId, remoteSessionId, signal) =>
+            readRemoteSurfaceViaPool(serverId, remoteSessionId, signal),
+        },
         log: (format, ...args) => { logInfo(`dsh-zen-remote ${format}`, ...args) },
       })
       interceptHandle = handle

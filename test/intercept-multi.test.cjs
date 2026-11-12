@@ -411,14 +411,14 @@ test('MS-3 workspace merge: the order frame is [...local, ...A, ...B] in PAIRING
   const framesB = await readSome(iterator, 4)
   assert.equal(framesB[0].type, 'upsert')
   assert.equal(framesB[0].workspace.workspaceId, VB('w-b'))
-  assert.equal(framesB[0].workspace.title, 'MacBook-2 · 工作区B', 'the pool display name titles the group')
+  assert.equal(framesB[0].workspace.title, '工作区B', 'unprefixed workspace title under host switcher')
   assert.deepEqual(framesB[1].workspaceIds, ['ws-local', VB('w-b')])
 
   legA.gate.push(workspaceBaseline('w-a', '工作区A', ['sa1']))
   const framesA = await readSome(iterator, 4)
   assert.equal(framesA[0].type, 'upsert')
   assert.equal(framesA[0].workspace.workspaceId, VA('w-a'))
-  assert.equal(framesA[0].workspace.title, 'MacBook-1 · 工作区A')
+  assert.equal(framesA[0].workspace.title, '工作区A')
   assert.deepEqual(
     framesA[1].workspaceIds,
     ['ws-local', VA('w-a'), VB('w-b')],
@@ -430,7 +430,7 @@ test('MS-3 workspace merge: the order frame is [...local, ...A, ...B] in PAIRING
   handle.uninstall()
 })
 
-test('MS-3 workspace merge: a local baseline after cached remote baselines composes all servers in pairing order', async () => {
+test('MS-3 workspace merge: a local baseline after cached remote baselines composes all servers in pairing order (including empty remote workspaces)', async () => {
   const { relayA, relayB } = bothRelays()
   const pool = bothPool(relayA, relayB)
   const { gateway, localGate } = createMergeGateway()
@@ -454,13 +454,13 @@ test('MS-3 workspace merge: a local baseline after cached remote baselines compo
   assert.equal(baseline.type, 'baseline')
   assert.deepEqual(
     baseline.value.items.map((item) => item.workspaceId),
-    ['ws-local', VA('w-a')],
-    'one baseline; B\'s group is EMPTY (no sessions) so T56 withholds it',
+    ['ws-local', VA('w-a'), VB('w-b')],
+    'one baseline; B\'s empty group is visible with placeholder sessionId',
   )
-  const upserts = await readSome(iterator, 1)
+  const upserts = await readSome(iterator, 2)
   assert.deepEqual(
     upserts.map((frame) => frame.workspace.workspaceId),
-    [VA('w-a')],
+    [VA('w-a'), VB('w-b')],
     'each shown server\'s upserts follow in pairing order',
   )
 
@@ -531,7 +531,7 @@ test('MS-3 workspace merge: a display-name change re-upserts the group under the
   handle.notePoolEvent()
   const [renamed] = await readSome(iterator, 4)
   assert.equal(renamed.type, 'upsert')
-  assert.equal(renamed.workspace.title, 'desk · 工作区A', 'the un-suffixed name now titles the group')
+  assert.equal(renamed.workspace.title, '工作区A', 'workspace title stays unprefixed across display-name change')
 
   await iterator.return?.(undefined)
   handle.uninstall()

@@ -1036,7 +1036,7 @@ export function GatewayWizard(props: GatewayWizardProps): ReactNode {
 
   // Only show on the bundle detail page (never on a component row page).
   const subject = (props as { subject?: { kind?: string; pkg?: { name?: string } } }).subject
-  if (subject !== undefined && (subject.kind === 'row' || (subject.pkg?.name !== undefined && subject.pkg.name !== 'dsh-zen-remote'))) {
+  if (subject !== undefined && (subject.kind === 'row' || (subject.pkg?.name !== undefined && subject.pkg.name !== 'dsh-remote-hub'))) {
     return null
   }
 

@@ -91,6 +91,8 @@ export declare const CLIENT_CURRENT_SESSION_ROUTE = "/_dsh/zen-remote/client/cur
  * the live clients stop with their records. Pool-mode only — a mount without
  * a pool has no paired list to edit and answers the unknown-path 404. */
 export declare const CLIENT_UNPAIR_ROUTE = "/_dsh/zen-remote/client/unpair";
+/** POST `{serverId?, action, path?, showHidden?}`: browse/mkdir/create remote workspaces. */
+export declare const CLIENT_WORKSPACE_MANAGE_ROUTE = "/_dsh/zen-remote/client/workspace-manage";
 /** Prefix of the plain-HTTP relay routes (T41b):
  * `GET ${CLIENT_HTTP_ROUTE_PREFIX}<route>?<query>` relays one intercepted
  * `/api/<route>` call (the fetch wrapper's rewrites land here) to the

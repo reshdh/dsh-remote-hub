@@ -297,6 +297,11 @@ export interface SessionInventorySlot {
     replace(ids: ReadonlySet<string>): void;
     dispose(): void;
 }
+export interface SessionRefBridgeHooks {
+    listLocalCandidates?: (query: string, signal?: AbortSignal) => Promise<unknown[]> | unknown[];
+    readLocalSurface?: (sessionId: string, signal?: AbortSignal) => Promise<unknown> | unknown;
+    readRemoteSurface?: (serverId: string, sessionId: string, signal?: AbortSignal) => Promise<unknown> | unknown;
+}
 export interface InstallInterceptOptions {
     /** The RAW gateway instance (`ctx.typertGateway[symbols.original]`), not
      * the cordis proxy — own properties on the proxy are ignored by everyone. */
@@ -342,6 +347,8 @@ export interface InstallInterceptOptions {
     /** Language for error messages and sidebar group suffixes (`'zh'` default,
      * `'en'` English). Accepts a getter for live resolution. */
     lang?: InterceptLang | (() => InterceptLang) | undefined;
+    /** Optional cross-host `@` session reference candidate & surface staging hooks. */
+    sessionRefBridge?: SessionRefBridgeHooks;
 }
 export interface InterceptHandle {
     /** Remove both own properties, restoring exactly what was installed over
